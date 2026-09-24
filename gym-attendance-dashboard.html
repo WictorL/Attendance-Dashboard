@@ -4,75 +4,107 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Gym Attendance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #161616; --card: #232323;
-    --accent: #E8590C; --text: #F5F5F5; --muted: #9C9C9C; --border: #3A3A3A;
+    --bg: #14171C; --card: #1E232B; --card2: #20262F;
+    --accent: #F2A93B; --text: #EDEFF2; --muted: #9AA4B2; --border: #2A313C;
   }
   * { box-sizing: border-box; }
   html, body {
     margin: 0; padding: 0; background: var(--bg); color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-family: 'Work Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     min-height: 100%;
   }
   body { padding: env(safe-area-inset-top, 20px) 16px calc(env(safe-area-inset-bottom, 20px) + 16px); }
+  h1, h2 { font-family: 'Oswald', sans-serif; }
+
   #setup { max-width: 400px; margin: 70px auto; text-align: center; }
-  #setup h1 { font-size: 19px; margin-bottom: 8px; }
+  #setup h1 { font-size: 22px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
   #setup p { color: var(--muted); font-size: 14px; margin-bottom: 20px; }
   #setup input {
     width: 100%; padding: 14px 16px; border-radius: 12px; margin-bottom: 10px;
     border: 1px solid var(--border); background: var(--card); color: var(--text); font-size: 15px;
+    font-family: inherit;
   }
   #setup button {
     padding: 14px 28px; border-radius: 12px; border: none; width: 100%;
-    background: var(--accent); color: #161616; font-weight: 700; font-size: 15px; cursor: pointer;
+    background: var(--accent); color: #14171C; font-weight: 700; font-size: 15px; cursor: pointer;
+    font-family: 'Oswald', sans-serif; text-transform: uppercase; letter-spacing: 0.5px;
   }
-  header { text-align: center; margin-bottom: 22px; }
-  header h1 { font-size: 18px; margin: 0 0 4px; font-weight: 600; }
-  header .sub { color: var(--muted); font-size: 12px; }
-  .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 420px; margin: 0 auto 16px; }
+
+  header { text-align: center; margin-bottom: 24px; }
+  header h1 {
+    font-size: 26px; margin: 0 0 6px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;
+  }
+  header .sub {
+    display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px;
+    background: var(--card); border: 1px solid var(--border); padding: 6px 14px; border-radius: 999px;
+  }
+  header .sub::before {
+    content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); display: inline-block;
+  }
+
+  .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 460px; margin: 0 auto 16px; }
   .kpi {
-    background: var(--card); border-left: 3px solid var(--accent);
-    border-radius: 0 14px 14px 0; padding: 18px 16px;
+    background: var(--card); border-top: 3px solid var(--accent); border: 1px solid var(--border);
+    border-top: 3px solid var(--accent); border-radius: 14px; padding: 18px 16px;
   }
-  .kpi .label { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
-  .kpi .value { font-size: 30px; font-weight: 700; }
-  .last-visit {
-    max-width: 420px; margin: 0 auto; background: var(--card); border-radius: 14px;
-    padding: 16px; text-align: center;
-  }
-  .last-visit .label { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
-  .last-visit .value { font-size: 16px; font-weight: 600; }
-  .last-visit .time { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .kpi .label { color: var(--muted); font-size: 11px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .kpi .value { font-size: 32px; font-weight: 700; font-family: 'Oswald', sans-serif; }
+
   #loading, #err { text-align: center; padding: 60px 20px; color: var(--muted); font-size: 14px; }
   #err { color: #ff6b6b; }
   .refresh-wrap { text-align: center; margin-top: 20px; }
   .refresh-btn {
     background: var(--card); border: 1px solid var(--border); color: var(--text);
-    padding: 9px 18px; border-radius: 10px; font-size: 13px; cursor: pointer;
+    padding: 9px 18px; border-radius: 10px; font-size: 13px; cursor: pointer; font-family: inherit;
   }
+
   .panel {
-    max-width: 420px; margin: 0 auto 14px; background: var(--card); border-radius: 14px; padding: 16px;
+    max-width: 460px; margin: 0 auto 14px; background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 18px;
   }
-  .panel h2 { font-size: 12px; color: var(--muted); font-weight: 600; margin: 0 0 12px; text-transform: uppercase; letter-spacing: 0.03em; }
-  .panel table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .panel td { padding: 8px 0; border-bottom: 1px solid var(--border); }
-  .panel tr:last-child td { border-bottom: none; }
-  .risk-days { color: var(--accent); font-weight: 600; }
-  .belt-avg { color: var(--accent); font-weight: 600; }
-  .row {
+  .panel h2 {
+    font-size: 15px; color: var(--text); font-weight: 600; margin: 0 0 12px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .panel h2 .hint { color: var(--muted); font-size: 11px; text-transform: none; font-weight: 400; font-family: 'Work Sans', sans-serif; letter-spacing: normal; display: block; margin-top: 2px; }
+
+  .risk-row {
     display: flex; justify-content: space-between; align-items: center;
-    padding: 10px 2px; border-bottom: 1px solid var(--border); cursor: pointer;
-    font-size: 13px; transition: background 0.15s ease;
+    padding: 11px 0; border-bottom: 1px solid var(--border); font-size: 14px;
   }
-  .row:last-child { border-bottom: none; }
-  .row:active { background: var(--card2, #2b2b2b); }
-  .row-left { display: flex; align-items: center; gap: 10px; }
+  .risk-row:last-child { border-bottom: none; }
+  .risk-left { display: flex; align-items: center; gap: 10px; }
+  .risk-right { text-align: right; }
+  .risk-days { color: var(--accent); font-weight: 600; font-size: 13px; }
+  .risk-action { color: var(--muted); font-size: 11px; margin-top: 2px; }
+
   .dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
-  .detail-box {
-    margin-top: 10px; padding: 12px; background: #2b2b2b; border-radius: 10px;
-    font-size: 12.5px; color: var(--muted); line-height: 1.5;
+
+  .belt-item { border-radius: 10px; background: var(--card2); margin-bottom: 8px; }
+  .belt-item:last-child { margin-bottom: 0; }
+  .belt-item.expanded { border: 1px solid var(--accent); }
+  .belt-row {
+    all: unset; box-sizing: border-box; width: 100%; display: flex; align-items: center;
+    justify-content: space-between; padding: 12px 14px; cursor: pointer; font-family: inherit;
   }
+  .belt-left { display: flex; align-items: center; gap: 12px; }
+  .belt-name { font-size: 15px; font-weight: 500; }
+  .belt-count { font-size: 12px; color: var(--muted); }
+  .belt-avg { font-size: 13px; color: var(--muted); font-weight: 600; }
+  .belt-chevron { font-size: 18px; color: var(--muted); transition: transform 0.15s ease; }
+  .belt-item.expanded .belt-chevron { transform: rotate(90deg); color: var(--accent); }
+
+  .belt-roster {
+    padding: 0 14px 14px; display: flex; flex-direction: column; gap: 7px;
+    border-top: 1px solid var(--border); margin-top: 2px; padding-top: 10px;
+  }
+  .roster-row { display: flex; justify-content: space-between; font-size: 13.5px; }
+  .roster-row .rname { color: var(--text); }
+  .roster-row .rstatus { color: var(--muted); }
 </style>
 </head>
 <body>
@@ -101,22 +133,15 @@
       <div class="kpi"><div class="label">Total members</div><div class="value" id="kpiMembers">0</div></div>
       <div class="kpi"><div class="label">All-time check-ins</div><div class="value" id="kpiTotal">0</div></div>
     </div>
-    <div class="last-visit" style="display:none;">
-      <div class="label">Most recent check-in</div>
-      <div class="value" id="lastName">—</div>
-      <div class="time" id="lastTime"></div>
-    </div>
 
     <div class="panel" id="atRiskPanel" style="display:none;">
-      <h2>At-risk members (10+ days away)</h2>
+      <h2>At-risk members <span class="hint">10+ days away</span></h2>
       <div id="atRiskList"></div>
-      <div id="atRiskDetail" class="detail-box" style="display:none;"></div>
     </div>
 
     <div class="panel" id="beltPanel" style="display:none;">
-      <h2>Belt breakdown &middot; tap a row</h2>
+      <h2>Belt breakdown <span class="hint">Tap a belt to see its students</span></h2>
       <div id="beltList"></div>
-      <div id="beltDetail" class="detail-box" style="display:none;"></div>
     </div>
 
     <div class="refresh-wrap">
@@ -130,6 +155,7 @@
   const STORAGE_KEY = 'gymDashboardUrl';
   const GYM_KEY = 'gymDashboardGym';
   let baseUrl = null, gymName = null;
+  let expandedBelt = null; // which belt row is currently drilled into, if any
 
   async function loadData() {
     document.getElementById('loading').style.display = 'block';
@@ -173,19 +199,22 @@
   }
 
   const BELT_COLORS = {
-    white: { dot: '#ffffff', text: '#cfcfcf', border: true },
-    blue: { dot: '#378ADD', text: '#7fb8ee' },
-    purple: { dot: '#7F77DD', text: '#a89fe8' },
-    brown: { dot: '#8B5A2B', text: '#c99a6b' },
-    black: { dot: '#111111', text: '#e8e8e8', border: true },
-    unspecified: { dot: '#666', text: 'var(--muted)' }
+    white: { dot: '#F5F5F0', border: true },
+    blue: { dot: '#2F6FED' },
+    purple: { dot: '#8B5CF6' },
+    brown: { dot: '#8B5E34' },
+    black: { dot: '#111111', border: true },
+    unspecified: { dot: '#6B7280' }
   };
   function beltStyle(beltName) {
     const key = (beltName || '').toLowerCase().trim();
     return BELT_COLORS[key] || BELT_COLORS.unspecified;
   }
 
+  let lastData = null; // keep the last successful payload so re-render (on tap) needs no re-fetch
+
   function render(data) {
+    lastData = data;
     document.getElementById('loading').style.display = 'none';
     document.getElementById('content').style.display = 'block';
     if (data.gymName) document.getElementById('gymTitle').textContent = data.gymName;
@@ -194,60 +223,68 @@
     document.getElementById('kpiMembers').textContent = data.totalMembers || 0;
     document.getElementById('kpiTotal').textContent = data.totalCheckIns || 0;
 
-    // At-risk members — tappable, shows a short suggested-action note
+    // At-risk members
     const atRiskPanel = document.getElementById('atRiskPanel');
     const atRiskList = document.getElementById('atRiskList');
-    const atRiskDetail = document.getElementById('atRiskDetail');
     if (data.atRisk && data.atRisk.length) {
       atRiskPanel.style.display = 'block';
-      atRiskList.innerHTML = data.atRisk.map((m, i) =>
-        `<div class="row" data-idx="${i}">
-           <span>${m.name}</span>
-           <span class="risk-days">${m.daysSince}d away</span>
+      atRiskList.innerHTML = data.atRisk.map(m =>
+        `<div class="risk-row">
+           <div class="risk-left">${m.name}</div>
+           <div class="risk-right">
+             <div class="risk-days">${m.daysSince}d away</div>
+             <div class="risk-action">Send a check-in text</div>
+           </div>
          </div>`
       ).join('');
-      atRiskList.querySelectorAll('.row').forEach(row => {
-        row.addEventListener('click', () => {
-          const m = data.atRisk[parseInt(row.dataset.idx, 10)];
-          atRiskDetail.style.display = 'block';
-          atRiskDetail.textContent = m.name + ' hasn\'t checked in for ' + m.daysSince + ' days. Worth a quick message to check in before they drift away.';
-        });
-      });
     } else {
       atRiskPanel.style.display = 'none';
     }
 
-    // Belt breakdown — colored dots, tappable, shows a plain-English read
+    renderBeltList(data);
+  }
+
+  // Renders the belt list, expanding whichever belt is in `expandedBelt` (if any)
+  // with its real member roster — no extra request needed, the roster came with getDashboardData.
+  function renderBeltList(data) {
     const beltPanel = document.getElementById('beltPanel');
     const beltList = document.getElementById('beltList');
-    const beltDetail = document.getElementById('beltDetail');
-    if (data.beltBreakdown && data.beltBreakdown.length) {
-      beltPanel.style.display = 'block';
-      const maxAvg = Math.max(...data.beltBreakdown.map(b => b.avgVisits), 0.01);
-      beltList.innerHTML = data.beltBreakdown.map((b, i) => {
-        const style = beltStyle(b.belt);
-        return `<div class="row" data-idx="${i}">
-           <span class="row-left">
-             <span class="dot" style="background:${style.dot};${style.border ? 'border:1px solid var(--border);' : ''}"></span>
-             ${b.belt} &middot; ${b.memberCount} members
-           </span>
-           <span class="belt-avg" style="color:${style.text};">${b.avgVisits} avg</span>
-         </div>`;
-      }).join('');
-      beltList.querySelectorAll('.row').forEach(row => {
-        row.addEventListener('click', () => {
-          const b = data.beltBreakdown[parseInt(row.dataset.idx, 10)];
-          const ratio = b.avgVisits / maxAvg;
-          const read = ratio > 0.85 ? 'training the most consistently of any rank right now.'
-            : ratio < 0.5 ? 'attending noticeably less than your most active rank — worth keeping an eye on.'
-            : 'training at a fairly healthy, average rate.';
-          beltDetail.style.display = 'block';
-          beltDetail.textContent = b.belt + ' belts are ' + read;
-        });
-      });
-    } else {
+    if (!data.beltBreakdown || !data.beltBreakdown.length) {
       beltPanel.style.display = 'none';
+      return;
     }
+    beltPanel.style.display = 'block';
+
+    beltList.innerHTML = data.beltBreakdown.map((b, i) => {
+      const style = beltStyle(b.belt);
+      const isOpen = expandedBelt === b.belt;
+      const roster = (b.members || []).map(m =>
+        `<div class="roster-row"><span class="rname">${m.name}</span><span class="rstatus">${m.label}</span></div>`
+      ).join('');
+      return `
+        <div class="belt-item${isOpen ? ' expanded' : ''}">
+          <button type="button" class="belt-row" data-idx="${i}">
+            <span class="belt-left">
+              <span class="dot" style="background:${style.dot};${style.border ? 'border:1px solid var(--border);' : ''}"></span>
+              <span class="belt-name">${b.belt}</span>
+              <span class="belt-count">${b.memberCount} students</span>
+            </span>
+            <span class="belt-right" style="display:flex;align-items:center;gap:10px;">
+              <span class="belt-avg">${b.avgVisits} avg</span>
+              <span class="belt-chevron" aria-hidden="true">&rsaquo;</span>
+            </span>
+          </button>
+          ${isOpen ? `<div class="belt-roster">${roster || '<div class="roster-row"><span class="rname" style="color:var(--muted)">No students in this belt yet</span></div>'}</div>` : ''}
+        </div>`;
+    }).join('');
+
+    beltList.querySelectorAll('.belt-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const b = data.beltBreakdown[parseInt(row.dataset.idx, 10)];
+        expandedBelt = (expandedBelt === b.belt) ? null : b.belt;
+        renderBeltList(data); // re-render just the belt list — instant, no network call
+      });
+    });
   }
 
   function init() {
@@ -276,7 +313,7 @@
     document.getElementById('gymTitle').textContent = gymName;
     loadData();
   });
-  document.getElementById('refreshBtn').addEventListener('click', loadData);
+  document.getElementById('refreshBtn').addEventListener('click', () => { expandedBelt = null; loadData(); });
 
   // Auto-refresh: every 15 minutes while the page is open, no button press needed
   setInterval(() => {
@@ -284,7 +321,6 @@
   }, 15 * 60 * 1000);
 
   // Also refresh whenever the tab/phone screen comes back into view
-  // (e.g. it was left open overnight or the phone was locked)
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && baseUrl && gymName) loadData();
   });
