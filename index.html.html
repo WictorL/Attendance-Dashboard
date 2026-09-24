@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Gym Check-In Scanner</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js" onerror="this.dataset.failed='1'"></script>
+<script>
+  // Fallback: if the primary CDN was blocked, try a second source before the page needs jsQR.
+  window.addEventListener('DOMContentLoaded', function() {
+    if (typeof jsQR === 'undefined') {
+      var s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
+      s.onload = function() { window.__jsQRReady = true; };
+      s.onerror = function() { window.__jsQRLoadFailed = true; };
+      document.head.appendChild(s);
+    } else {
+      window.__jsQRReady = true;
+    }
+  });
+</script>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --accent: #2f81f7;
+    --good: #2ea043;
+    --bad: #cf222e;
+    --text: #e6edf3;
+    --muted: #8b949e;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden;
+  }
+  #wrap { position: fixed; inset: 0; display: flex; flex-direction: column; }
+  #videoWrap { position: relative; flex: 1; background: #000; overflow: hidden; }
+  video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  canvas { display: none; }
+  #frame {
+    position: absolute; inset: 8%;
+    border: 3px solid rgba(255,255,255,0.35);
+    border-radius: 24px;
+    pointer-events: none;
+    transition: border-color 0.15s ease;
+  }
+  #frame.hit { border-color: var(--good); }
+  #status {
+    position: absolute; top: 16px; left: 0; right: 0;
+    text-align: center; font-size: 15px; color: var(--muted);
+    letter-spacing: 0.02em;
+  }
+  #banner {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    padding: 28px 20px 40px; text-align: center;
+    transform: translateY(110%);
+    transition: transform 0.25s ease;
+    background: linear-gradient(to top, rgba(0,0,0,0.85), rgba(0,0,0,0));
+  }
+  #banner.show { transform: translateY(0); }
+  .pill {
+    display: inline-block; padding: 14px 28px; border-radius: 999px;
+    font-size: 22px; font-weight: 600; background: var(--accent);
+  }
+  #banner.good .pill { background: var(--good); }
+  #banner.bad .pill { background: var(--bad); }
+  #sub { margin-top: 8px; color: var(--muted); font-size: 14px; }
+  #start, #camError {
+    position: fixed; inset: 0; background: var(--bg);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 24px; text-align: center; z-index: 10;
+  }
+  #camError { display: none; z-index: 20; }
+  #camError.show { display: flex; }
+  #start h1, #camError h1 { font-size: 20px; margin: 0 0 8px; }
+  #start p, #camError p { color: var(--muted); font-size: 14px; margin: 0 0 22px; max-width: 320px; }
+  #startBtn, #reloadBtn {
+    padding: 16px 32px; border-radius: 14px; border: none;
+    background: var(--accent); color: white; font-size: 17px; font-weight: 600;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+<div id="start">
+  <h1>Gym Check-In Scanner</h1>
+  <p>Tap once to turn on the camera. After that, just hold each belt's QR code up to the screen — check-in happens automatically, no further tapping.</p>
+  <button id="startBtn">Turn On Camera</button>
+</div>
+
+<div id="camError">
+  <h1>Camera access needed</h1>
+  <p>Allow camera access for this page in your browser settings, then reload. On iPhone/iPad this needs to be open in Safari directly (not inside another app) for the camera to work.</p>
+  <p id="errDetail" style="font-family: monospace; font-size: 12px; color: #f0883e; word-break: break-word;"></p>
+  <button id="reloadBtn">Reload</button>
+</div>
+
+<div id="wrap" style="display:none;">
+  <div id="videoWrap">
+    <video id="video" playsinline muted autoplay></video>
+    <canvas id="canvas"></canvas>
+    <div id="frame"></div>
+    <div id="status">Point camera at a belt QR code</div>
+    <div id="debug" style="position:absolute; bottom:8px; left:8px; right:8px; font-family:monospace; font-size:11px; color:#8b949e; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:8px; max-height:80px; overflow:hidden; text-align:left;"></div>
+    <div id="banner">
+      <div class="pill" id="pillText">—</div>
+      <div id="sub"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const startEl = document.getElementById('start');
+  const wrapEl = document.getElementById('wrap');
+  const camErrorEl = document.getElementById('camError');
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const statusEl = document.getElementById('status');
+  const bannerEl = document.getElementById('banner');
+  const pillText = document.getElementById('pillText');
+  const subEl = document.getElementById('sub');
+  const frameEl = document.getElementById('frame');
+
+  const COOLDOWN_MS = 4000; // ignore the same code again for 4s to avoid double-logging one scan
+  const SCAN_MAX_DIM = 480; // downscale each frame to this before decoding — far fewer pixels for jsQR to process
+  let lastCode = null;
+  let lastTime = 0;
+  let scanning = false;
+  let frameCount = 0;
+  let visibleCode = null;   // the code currently sitting in front of the camera, if any
+  let missCount = 0;        // consecutive frames where nothing was detected
+  const MISS_THRESHOLD = 8; // frames of "nothing visible" before we consider the code gone
+  const debugEl = document.getElementById('debug');
+  let audioCtx = null;
+
+  function playBeep(freq, duration) {
+    if (!audioCtx) return;
+    try {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.35, audioCtx.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + duration + 0.02);
+    } catch (e) { /* audio is a nice-to-have — never let it break check-in */ }
+  }
+
+  function log(msg) {
+    if (!debugEl) return;
+    debugEl.textContent = msg;
+  }
+
+  function extractId(decodedText) {
+    try {
+      const url = new URL(decodedText);
+      return url.searchParams.get('id') || decodedText;
+    } catch (e) {
+      return decodedText; // not a URL — still show something rather than fail silently
+    }
+  }
+
+  function showBanner(kind, title, sub) {
+    bannerEl.classList.remove('good', 'bad');
+    bannerEl.classList.add(kind, 'show');
+    pillText.textContent = title;
+    subEl.textContent = sub || '';
+    frameEl.classList.add('hit');
+    clearTimeout(showBanner._t);
+    showBanner._t = setTimeout(() => {
+      bannerEl.classList.remove('show');
+      frameEl.classList.remove('hit');
+    }, 1800);
+  }
+
+  async function fireCheckIn(decodedText) {
+    const id = extractId(decodedText);
+    statusEl.textContent = 'Checking in…';
+    try {
+      // Belt QR codes already encode the FULL check-in link (your Apps Script URL + ?id=...).
+      // no-cors: the response can't be read back (cross-origin), but the GET still reaches
+      // the script and appends the attendance row — that's all we need here.
+      await fetch(decodedText, { method: 'GET', mode: 'no-cors', cache: 'no-store' });
+      showBanner('good', 'Checked in', 'Code: ' + id);
+      playBeep(1046, 0.15); // short, high, pleasant — "success"
+    } catch (err) {
+      showBanner('bad', 'Network error', 'Try again');
+      playBeep(220, 0.3); // low buzz — "something went wrong"
+    }
+    statusEl.textContent = 'Point camera at a belt QR code';
+  }
+
+  function handleDecoded(text) {
+    if (!/^https?:\/\//i.test(text)) {
+      log('Decoded non-URL text (ignored): ' + text);
+      return;
+    }
+    const now = Date.now();
+    const id = extractId(text);
+    if (id === lastCode && (now - lastTime) < COOLDOWN_MS) return; // secondary safety net for rapid flicker
+    lastCode = id;
+    lastTime = now;
+    fireCheckIn(text);
+  }
+
+  function tick() {
+    if (!scanning) return;
+    try {
+      if (typeof jsQR === 'undefined') {
+        log(window.__jsQRLoadFailed
+          ? 'QR library blocked by network/browser — try different WiFi, disable ad-blocker, or use a different browser'
+          : 'Loading QR library…');
+        requestAnimationFrame(tick);
+        return;
+      }
+      if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        frameCount++;
+        const vw = video.videoWidth, vh = video.videoHeight;
+        const scale = Math.min(1, SCAN_MAX_DIM / Math.max(vw, vh));
+        canvas.width = Math.round(vw * scale);
+        canvas.height = Math.round(vh * scale);
+        ctx.drawImage(video, 0, 0, vw, vh, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
+        if (code && code.data) {
+          missCount = 0;
+          if (code.data !== visibleCode) {
+            // A genuinely new code just entered view (or the same one came back after leaving) — fire once.
+            visibleCode = code.data;
+            log('DECODED: ' + code.data);
+            handleDecoded(code.data);
+          } else {
+            log('frames: ' + frameCount + ' | holding same code in view — waiting for it to move away');
+          }
+        } else {
+          missCount++;
+          if (missCount >= MISS_THRESHOLD) {
+            visibleCode = null; // code has left the frame — re-arm so it can trigger again next time
+          }
+          log('frames: ' + frameCount + ' | size: ' + canvas.width + 'x' + canvas.height + ' | no code found yet');
+        }
+      } else {
+        log('video not ready (readyState=' + video.readyState + ')');
+      }
+    } catch (err) {
+      log('TICK ERROR: ' + (err && err.message ? err.message : err));
+    }
+    requestAnimationFrame(tick);
+  }
+
+  async function startCamera() {
+    try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); audioCtx.resume(); } catch (e) {}
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+      video.srcObject = stream;
+      await video.play();
+      startEl.style.display = 'none';
+      camErrorEl.classList.remove('show');
+      wrapEl.style.display = 'flex';
+      scanning = true;
+      requestAnimationFrame(tick);
+    } catch (err) {
+      startEl.style.display = 'none';
+      wrapEl.style.display = 'none';
+      camErrorEl.classList.add('show');
+      const detail = document.getElementById('errDetail');
+      let extra = '';
+      if (!window.isSecureContext) extra = ' (page is not running over HTTPS — camera requires a secure connection)';
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) extra = ' (this browser does not expose a camera API at all — likely an in-app/embedded browser)';
+      detail.textContent = (err && (err.name || err.message)) ? (err.name + ': ' + err.message + extra) : ('Unknown error' + extra);
+    }
+  }
+
+  document.getElementById('startBtn').addEventListener('click', startCamera);
+  document.getElementById('reloadBtn').addEventListener('click', () => location.reload());
+})();
+</script>
+
+</body>
+</html>
