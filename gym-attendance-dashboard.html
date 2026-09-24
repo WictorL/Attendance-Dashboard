@@ -131,6 +131,33 @@
   .bar-col .bar-day { font-size: 11px; color: var(--muted); }
   .bar-col.peak .bar-day { color: var(--text); font-weight: 600; }
   .bar-col.peak .bar-val { color: var(--accent); font-weight: 700; }
+
+  .lookup-wrap { position: relative; }
+  .lookup-wrap input {
+    width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--card2); color: var(--text); font-size: 14px; font-family: inherit;
+  }
+  .search-results {
+    display: none; position: absolute; left: 0; right: 0; top: calc(100% + 6px);
+    background: var(--card2); border: 1px solid var(--border); border-radius: 10px;
+    overflow-y: auto; max-height: 220px; z-index: 5;
+  }
+  .search-result {
+    padding: 10px 14px; cursor: pointer; font-size: 14px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .search-result:last-child { border-bottom: none; }
+  .search-result:active { background: var(--card); }
+  .search-result .sr-left { display: flex; align-items: center; gap: 8px; }
+  .search-result .sr-belt { color: var(--muted); font-size: 12px; }
+
+  .member-detail-head { display: flex; align-items: center; justify-content: space-between; }
+  .member-detail-name { font-family: 'Oswald', sans-serif; font-size: 17px; font-weight: 600; }
+  .member-detail-meta { font-size: 12px; color: var(--muted); margin: 6px 0 12px; }
+  .clear-btn { all: unset; cursor: pointer; color: var(--muted); font-size: 12px; text-decoration: underline; }
+  .visit-list { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow-y: auto; }
+  .visit-row { display: flex; justify-content: space-between; font-size: 13px; padding: 7px 0; border-bottom: 1px solid var(--border); }
+  .visit-row:last-child { border-bottom: none; }
 </style>
 </head>
 <body>
@@ -198,6 +225,15 @@
       <div class="bars-wrap" id="weekdayBars"></div>
     </div>
 
+    <div class="panel">
+      <h2>Member lookup <span class="hint">Search a name to see their full check-in history</span></h2>
+      <div class="lookup-wrap">
+        <input id="memberSearch" type="text" placeholder="Search by name…" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <div class="search-results" id="searchResults"></div>
+      </div>
+      <div id="memberDetail" style="display:none; margin-top:14px;"></div>
+    </div>
+
     <div class="refresh-wrap">
       <button class="refresh-btn" id="refreshBtn">Refresh</button>
     </div>
@@ -211,6 +247,7 @@
   let baseUrl = null, gymName = null;
   let expandedBelt = null; // which belt row is currently drilled into, if any
   let calYear = null, calMonth = null, calDaysMap = {}; // currently displayed calendar month
+  let allMembers = []; // full roster for this gym, used by the member-lookup search
 
   async function loadData() {
     document.getElementById('loading').style.display = 'block';
@@ -227,6 +264,13 @@
       e.style.display = 'block';
       e.textContent = 'Could not load data: ' + err.message;
     }
+
+    // Member roster for the lookup search — fetched separately so a failure here
+    // never blocks the main dashboard from showing.
+    try {
+      const memberListResult = await jsonpRequest(baseUrl, { mode: 'members', gymId: gymName });
+      if (memberListResult.members) allMembers = memberListResult.members;
+    } catch (err) { /* search just won't have results if this fails */ }
   }
 
   function jsonpRequest(baseUrl, params) {
@@ -416,6 +460,79 @@
     }).join('');
   }
 
+  function renderSearchResults(matches) {
+    const box = document.getElementById('searchResults');
+    if (!matches.length) {
+      box.style.display = 'block';
+      box.innerHTML = '<div class="search-result" style="color:var(--muted); cursor:default;">No matches</div>';
+      return;
+    }
+    box.style.display = 'block';
+    box.innerHTML = matches.map(m => {
+      const style = beltStyle(m.belt);
+      return `<div class="search-result" data-id="${m.id}">
+        <span class="sr-left">
+          <span class="dot" style="background:${style.dot};${style.border ? 'border:1px solid var(--border);' : ''}"></span>
+          ${m.name}
+        </span>
+        <span class="sr-belt">${m.belt}</span>
+      </div>`;
+    }).join('');
+    box.querySelectorAll('.search-result[data-id]').forEach(row => {
+      row.addEventListener('click', () => selectMember(row.dataset.id));
+    });
+  }
+
+  async function selectMember(id) {
+    document.getElementById('searchResults').style.display = 'none';
+    document.getElementById('memberSearch').value = '';
+    const detailBox = document.getElementById('memberDetail');
+    detailBox.style.display = 'block';
+    detailBox.innerHTML = '<div style="color:var(--muted); font-size:13px;">Loading…</div>';
+    try {
+      const result = await jsonpRequest(baseUrl, { mode: 'profile', id: id });
+      if (result.error) throw new Error(result.error);
+      renderMemberDetail(result);
+    } catch (err) {
+      detailBox.innerHTML = '<div style="color:#ff6b6b; font-size:13px;">Could not load this member\'s history.</div>';
+    }
+  }
+
+  function renderMemberDetail(result) {
+    const member = result.member;
+    const style = beltStyle(member.belt);
+    const visits = (result.visits || [])
+      .map(v => new Date(v))
+      .filter(d => !isNaN(d))
+      .sort((a, b) => b - a);
+
+    const shown = visits.slice(0, 40);
+    const rows = shown.map(d =>
+      `<div class="visit-row">
+         <span>${d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</span>
+         <span style="color:var(--muted);">${d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</span>
+       </div>`
+    ).join('');
+
+    document.getElementById('memberDetail').innerHTML = `
+      <div class="member-detail-head">
+        <span class="sr-left" style="gap:10px;">
+          <span class="dot" style="background:${style.dot};${style.border ? 'border:1px solid var(--border);' : ''}"></span>
+          <span class="member-detail-name">${member.name}</span>
+        </span>
+        <button type="button" class="clear-btn" id="clearMemberBtn">Clear</button>
+      </div>
+      <div class="member-detail-meta">${member.belt} belt &middot; ${visits.length} total check-in${visits.length === 1 ? '' : 's'}</div>
+      <div class="visit-list">${rows || '<div style="color:var(--muted); font-size:13px;">No check-ins recorded yet.</div>'}</div>
+      ${visits.length > 40 ? `<div style="font-size:11px; color:var(--muted); margin-top:8px;">Showing the 40 most recent of ${visits.length}</div>` : ''}
+    `;
+    document.getElementById('clearMemberBtn').addEventListener('click', () => {
+      const box = document.getElementById('memberDetail');
+      box.style.display = 'none';
+      box.innerHTML = '';
+    });
+  }
+
   function init() {
     const params = new URLSearchParams(window.location.search);
     baseUrl = params.get('url');
@@ -445,6 +562,13 @@
   document.getElementById('refreshBtn').addEventListener('click', () => { expandedBelt = null; loadData(); });
   document.getElementById('calPrev').addEventListener('click', () => changeMonth(-1));
   document.getElementById('calNext').addEventListener('click', () => changeMonth(1));
+
+  document.getElementById('memberSearch').addEventListener('input', (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    const box = document.getElementById('searchResults');
+    if (!q) { box.style.display = 'none'; box.innerHTML = ''; return; }
+    renderSearchResults(allMembers.filter(m => m.name.toLowerCase().includes(q)).slice(0, 8));
+  });
 
   // Auto-refresh: every 15 minutes while the page is open, no button press needed
   setInterval(() => {
