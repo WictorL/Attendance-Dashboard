@@ -105,6 +105,32 @@
   .roster-row { display: flex; justify-content: space-between; font-size: 13.5px; }
   .roster-row .rname { color: var(--text); }
   .roster-row .rstatus { color: var(--muted); }
+
+  .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .cal-nav { all: unset; cursor: pointer; color: var(--muted); font-size: 17px; padding: 2px 8px; }
+  .cal-nav:active { color: var(--accent); }
+  .cal-label { font-size: 12px; color: var(--muted); }
+  .cal-weekdays, .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+  .cal-weekdays { margin-bottom: 6px; }
+  .cal-weekdays span { font-size: 10px; color: #6B7280; text-align: center; }
+  .cal-day {
+    aspect-ratio: 1; border-radius: 6px; background: var(--card2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; color: var(--muted);
+  }
+  .cal-day.blank { background: transparent; }
+  .cal-day.today { border: 2px solid var(--accent); }
+  .cal-legend { display: flex; align-items: center; justify-content: flex-end; gap: 5px; margin-top: 10px; }
+  .cal-legend span.sw { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+  .cal-legend span.lbl { font-size: 10px; color: #6B7280; }
+
+  .bars-wrap { display: flex; align-items: flex-end; gap: 8px; height: 140px; }
+  .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; }
+  .bar-col .bar-val { font-size: 12px; font-weight: 600; }
+  .bar-col .bar-fill { width: 100%; max-width: 30px; background: var(--accent); border-radius: 6px 6px 0 0; }
+  .bar-col .bar-day { font-size: 11px; color: var(--muted); }
+  .bar-col.peak .bar-day { color: var(--text); font-weight: 600; }
+  .bar-col.peak .bar-val { color: var(--accent); font-weight: 700; }
 </style>
 </head>
 <body>
@@ -144,6 +170,34 @@
       <div id="beltList"></div>
     </div>
 
+    <div class="panel" id="calPanel" style="display:none;">
+      <div class="cal-head">
+        <h2 style="margin:0;">This month</h2>
+        <span style="display:flex; align-items:center; gap:8px;">
+          <button type="button" class="cal-nav" id="calPrev" aria-label="Previous month">&lsaquo;</button>
+          <span class="cal-label" id="calLabel">—</span>
+          <button type="button" class="cal-nav" id="calNext" aria-label="Next month">&rsaquo;</button>
+        </span>
+      </div>
+      <div class="cal-weekdays">
+        <span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span>
+      </div>
+      <div class="cal-grid" id="calGrid"></div>
+      <div class="cal-legend">
+        <span class="lbl">Fewer</span>
+        <span class="sw" style="background:rgba(242,169,59,0.15)"></span>
+        <span class="sw" style="background:rgba(242,169,59,0.4)"></span>
+        <span class="sw" style="background:rgba(242,169,59,0.65)"></span>
+        <span class="sw" style="background:rgba(242,169,59,0.95)"></span>
+        <span class="lbl">More</span>
+      </div>
+    </div>
+
+    <div class="panel" id="weekdayPanel" style="display:none;">
+      <h2>Busiest days <span class="hint">Total check-ins by weekday</span></h2>
+      <div class="bars-wrap" id="weekdayBars"></div>
+    </div>
+
     <div class="refresh-wrap">
       <button class="refresh-btn" id="refreshBtn">Refresh</button>
     </div>
@@ -156,6 +210,7 @@
   const GYM_KEY = 'gymDashboardGym';
   let baseUrl = null, gymName = null;
   let expandedBelt = null; // which belt row is currently drilled into, if any
+  let calYear = null, calMonth = null, calDaysMap = {}; // currently displayed calendar month
 
   async function loadData() {
     document.getElementById('loading').style.display = 'block';
@@ -242,6 +297,14 @@
     }
 
     renderBeltList(data);
+
+    if (data.calendarMonth) {
+      calYear = data.calendarMonth.year;
+      calMonth = data.calendarMonth.month;
+      calDaysMap = data.calendarMonth.days || {};
+      renderCalendar();
+    }
+    if (data.weekdayTotals) renderWeekdayBars(data.weekdayTotals);
   }
 
   // Renders the belt list, expanding whichever belt is in `expandedBelt` (if any)
@@ -287,6 +350,72 @@
     });
   }
 
+  const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+  function dateKey(y, m, d) {
+    return y + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  }
+
+  function renderCalendar() {
+    document.getElementById('calPanel').style.display = 'block';
+    document.getElementById('calLabel').textContent = MONTH_NAMES[calMonth] + ' ' + calYear;
+
+    const firstDay = new Date(calYear, calMonth, 1);
+    const leading = (firstDay.getDay() + 6) % 7; // Monday-first blank cells before day 1
+    const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+    const counts = Object.values(calDaysMap);
+    const maxCount = counts.length ? Math.max(...counts) : 0;
+
+    const todayReal = new Date();
+    const isCurrentMonth = todayReal.getFullYear() === calYear && todayReal.getMonth() === calMonth;
+
+    let html = '';
+    for (let i = 0; i < leading; i++) html += '<span class="cal-day blank"></span>';
+    for (let d = 1; d <= daysInMonth; d++) {
+      const count = calDaysMap[dateKey(calYear, calMonth, d)] || 0;
+      let style = '';
+      if (count > 0 && maxCount > 0) {
+        const opacity = (0.25 + (count / maxCount) * 0.75).toFixed(2);
+        style = `background: rgba(242,169,59,${opacity});`;
+        if (opacity >= 0.9) style += 'color:#14171C;font-weight:700;';
+      }
+      const isToday = isCurrentMonth && d === todayReal.getDate();
+      html += `<span class="cal-day${isToday ? ' today' : ''}" style="${style}">${d}</span>`;
+    }
+    document.getElementById('calGrid').innerHTML = html;
+  }
+
+  async function changeMonth(delta) {
+    let newMonth = calMonth + delta, newYear = calYear;
+    if (newMonth < 0) { newMonth = 11; newYear--; }
+    if (newMonth > 11) { newMonth = 0; newYear++; }
+    try {
+      const result = await jsonpRequest(baseUrl, { mode: 'calendar', gymId: gymName, year: newYear, month: newMonth });
+      if (result.error) throw new Error(result.error);
+      calYear = result.year; calMonth = result.month; calDaysMap = result.days || {};
+      renderCalendar();
+    } catch (err) {
+      // Silently ignore — the visible month just won't change if the request fails
+    }
+  }
+
+  const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']; // Sunday intentionally excluded (gym closed)
+
+  function renderWeekdayBars(weekdayTotals) {
+    document.getElementById('weekdayPanel').style.display = 'block';
+    const values = weekdayTotals.slice(0, 6); // Mon..Sat only
+    const max = Math.max(...values, 1);
+    const peakIdx = values.indexOf(Math.max(...values));
+    document.getElementById('weekdayBars').innerHTML = WEEKDAY_LABELS.map((label, i) => {
+      const pct = Math.round((values[i] / max) * 100);
+      return `<div class="bar-col${i === peakIdx ? ' peak' : ''}">
+        <span class="bar-val">${values[i]}</span>
+        <div class="bar-fill" style="height:${pct}%"></div>
+        <span class="bar-day">${label}</span>
+      </div>`;
+    }).join('');
+  }
+
   function init() {
     const params = new URLSearchParams(window.location.search);
     baseUrl = params.get('url');
@@ -314,6 +443,8 @@
     loadData();
   });
   document.getElementById('refreshBtn').addEventListener('click', () => { expandedBelt = null; loadData(); });
+  document.getElementById('calPrev').addEventListener('click', () => changeMonth(-1));
+  document.getElementById('calNext').addEventListener('click', () => changeMonth(1));
 
   // Auto-refresh: every 15 minutes while the page is open, no button press needed
   setInterval(() => {
