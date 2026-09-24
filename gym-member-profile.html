@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>My Attendance</title>
+<style>
+  :root {
+    --bg: #161616; --card: #232323; --card2: #2b2b2b;
+    --accent: #E8590C; --text: #F5F5F5; --muted: #9C9C9C; --border: #3A3A3A;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 100%;
+  }
+  body { padding: env(safe-area-inset-top, 20px) 16px calc(env(safe-area-inset-bottom, 20px) + 16px); }
+  #setup { max-width: 420px; margin: 60px auto; text-align: center; }
+  #setup h1 { font-size: 19px; margin-bottom: 8px; }
+  #setup p { color: var(--muted); font-size: 14px; margin-bottom: 20px; }
+  #setup input {
+    width: 100%; padding: 14px 16px; border-radius: 12px; margin-bottom: 10px;
+    border: 1px solid var(--border); background: var(--card); color: var(--text); font-size: 15px;
+  }
+  #setup button {
+    padding: 14px 28px; border-radius: 12px; border: none; width: 100%;
+    background: var(--accent); color: #161616; font-weight: 700; font-size: 15px; cursor: pointer;
+  }
+  #setup small { display:block; color: var(--muted); margin-top: 16px; font-size: 12px; }
+  .card-top {
+    display: flex; align-items: center; gap: 14px; margin-bottom: 18px;
+  }
+  .avatar {
+    width: 54px; height: 54px; border-radius: 50%; background: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 700; color: #161616; flex-shrink: 0;
+  }
+  .card-top h1 { font-size: 19px; margin: 0; }
+  .card-top .belt { color: var(--muted); font-size: 13px; }
+  .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
+  .kpi { background: var(--card); border-left: 3px solid var(--accent); border-radius: 0 12px 12px 0; padding: 12px; }
+  .kpi .label { color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+  .kpi .value { font-size: 21px; font-weight: 700; }
+  .panel { background: var(--card); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+  .panel h2 { font-size: 13px; color: var(--muted); font-weight: 600; margin: 0 0 14px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .heatmap { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  .cell { aspect-ratio: 1; border-radius: 4px; background: var(--card2); }
+  .cell.visited { background: var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  td { padding: 8px 0; border-bottom: 1px solid var(--border); color: var(--muted); }
+  tr:last-child td { border-bottom: none; }
+  #err { color: #ff6b6b; font-size: 13px; text-align: center; padding: 20px; }
+  #loading { text-align: center; color: var(--muted); padding: 40px; }
+</style>
+</head>
+<body>
+
+<div id="setup">
+  <h1>My Attendance</h1>
+  <p>Enter your check-in code (found on your belt tag) to view your attendance history.</p>
+  <input id="urlInput" type="url" placeholder="Apps Script URL (set up once)" autocomplete="off" autocapitalize="off" spellcheck="false">
+  <input id="idInput" type="text" placeholder="Your ID (e.g. a4x9k2)" autocomplete="off" autocapitalize="off" spellcheck="false">
+  <button id="loadBtn">View My Attendance</button>
+  <small>This link can be bookmarked so you don't need to re-enter these each time.</small>
+</div>
+
+<div id="profile" style="display:none; max-width: 520px; margin: 0 auto;">
+  <div id="loading">Loading…</div>
+  <div id="err" style="display:none;"></div>
+  <div id="content" style="display:none;">
+    <div class="card-top">
+      <div class="avatar" id="initial">?</div>
+      <div>
+        <h1 id="name">—</h1>
+        <div class="belt" id="belt">—</div>
+      </div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="label">Total visits</div><div class="value" id="kpiTotal">0</div></div>
+      <div class="kpi"><div class="label">This month</div><div class="value" id="kpiMonth">0</div></div>
+      <div class="kpi"><div class="label">Last visit</div><div class="value" id="kpiLast" style="font-size:14px;">—</div></div>
+    </div>
+    <div class="panel">
+      <h2>Last 28 days</h2>
+      <div class="heatmap" id="heatmap"></div>
+    </div>
+    <div class="panel">
+      <h2>Recent visits</h2>
+      <table><tbody id="recentTable"></tbody></table>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const URL_KEY = 'gymScriptUrl';
+  const ID_KEY = 'gymMemberId';
+
+  function fmtDate(d) {
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+
+  async function loadProfile(baseUrl, id) {
+    document.getElementById('setup').style.display = 'none';
+    document.getElementById('profile').style.display = 'block';
+    document.getElementById('loading').style.display = 'block';
+    document.getElementById('err').style.display = 'none';
+    document.getElementById('content').style.display = 'none';
+    try {
+      const sep = baseUrl.includes('?') ? '&' : '?';
+      const res = await fetch(baseUrl + sep + 'mode=profile&id=' + encodeURIComponent(id), { cache: 'no-store' });
+      const data = await res.json();
+      if (data.error || !data.member) throw new Error('ID not recognised');
+      render(data);
+    } catch (err) {
+      document.getElementById('loading').style.display = 'none';
+      const e = document.getElementById('err');
+      e.style.display = 'block';
+      e.textContent = 'Could not load profile: ' + err.message;
+    }
+  }
+
+  function render(data) {
+    const visits = (data.visits || []).map(v => new Date(v)).filter(d => !isNaN(d)).sort((a,b) => b-a);
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('content').style.display = 'block';
+
+    document.getElementById('name').textContent = data.member.name || 'Member';
+    document.getElementById('belt').textContent = (data.member.belt || '') + ' belt';
+    document.getElementById('initial').textContent = (data.member.name || '?').charAt(0).toUpperCase();
+
+    document.getElementById('kpiTotal').textContent = visits.length;
+    const now = new Date();
+    const monthCount = visits.filter(d => d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()).length;
+    document.getElementById('kpiMonth').textContent = monthCount;
+    document.getElementById('kpiLast').textContent = visits.length ? fmtDate(visits[0]) : '—';
+
+    // 28-day heatmap
+    const heat = document.getElementById('heatmap');
+    heat.innerHTML = '';
+    for (let i = 27; i >= 0; i--) {
+      const day = new Date(); day.setHours(0,0,0,0); day.setDate(day.getDate() - i);
+      const next = new Date(day); next.setDate(next.getDate() + 1);
+      const visited = visits.some(v => v >= day && v < next);
+      const cell = document.createElement('div');
+      cell.className = 'cell' + (visited ? ' visited' : '');
+      cell.title = day.toLocaleDateString();
+      heat.appendChild(cell);
+    }
+
+    // Recent visits table
+    const recentEl = document.getElementById('recentTable');
+    const recent = visits.slice(0, 8);
+    recentEl.innerHTML = recent.length ? recent.map(d =>
+      `<tr><td>${d.toLocaleDateString(undefined,{weekday:'short', month:'short', day:'numeric'})}</td><td style="text-align:right;">${d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})}</td></tr>`
+    ).join('') : '<tr><td style="color:var(--muted);">No visits recorded yet</td></tr>';
+  }
+
+  function init() {
+    // Support direct links like ?url=...&id=... so a member's personal link can skip the form entirely
+    const params = new URLSearchParams(window.location.search);
+    let baseUrl = params.get('url');
+    let id = params.get('id');
+
+    if (!baseUrl) { try { baseUrl = localStorage.getItem(URL_KEY); } catch (e) {} }
+    if (!id) { try { id = localStorage.getItem(ID_KEY); } catch (e) {} }
+
+    if (baseUrl && id) {
+      loadProfile(baseUrl, id);
+    }
+  }
+
+  document.getElementById('loadBtn').addEventListener('click', () => {
+    const url = document.getElementById('urlInput').value.trim();
+    const id = document.getElementById('idInput').value.trim();
+    if (!url || !id) return;
+    try { localStorage.setItem(URL_KEY, url); localStorage.setItem(ID_KEY, id); } catch (e) {}
+    loadProfile(url, id);
+  });
+
+  init();
+})();
+</script>
+
+</body>
+</html>

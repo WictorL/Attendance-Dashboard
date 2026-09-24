@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Gym Attendance</title>
+<style>
+  :root {
+    --bg: #161616; --card: #232323;
+    --accent: #E8590C; --text: #F5F5F5; --muted: #9C9C9C; --border: #3A3A3A;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 100%;
+  }
+  body { padding: env(safe-area-inset-top, 20px) 16px calc(env(safe-area-inset-bottom, 20px) + 16px); }
+  #setup { max-width: 400px; margin: 70px auto; text-align: center; }
+  #setup h1 { font-size: 19px; margin-bottom: 8px; }
+  #setup p { color: var(--muted); font-size: 14px; margin-bottom: 20px; }
+  #setup input {
+    width: 100%; padding: 14px 16px; border-radius: 12px; margin-bottom: 10px;
+    border: 1px solid var(--border); background: var(--card); color: var(--text); font-size: 15px;
+  }
+  #setup button {
+    padding: 14px 28px; border-radius: 12px; border: none; width: 100%;
+    background: var(--accent); color: #161616; font-weight: 700; font-size: 15px; cursor: pointer;
+  }
+  header { text-align: center; margin-bottom: 22px; }
+  header h1 { font-size: 18px; margin: 0 0 4px; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 420px; margin: 0 auto 16px; }
+  .kpi {
+    background: var(--card); border-left: 3px solid var(--accent);
+    border-radius: 0 14px 14px 0; padding: 18px 16px;
+  }
+  .kpi .label { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  .kpi .value { font-size: 30px; font-weight: 700; }
+  .last-visit {
+    max-width: 420px; margin: 0 auto; background: var(--card); border-radius: 14px;
+    padding: 16px; text-align: center;
+  }
+  .last-visit .label { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  .last-visit .value { font-size: 16px; font-weight: 600; }
+  .last-visit .time { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  #loading, #err { text-align: center; padding: 60px 20px; color: var(--muted); font-size: 14px; }
+  #err { color: #ff6b6b; }
+  .refresh-wrap { text-align: center; margin-top: 20px; }
+  .refresh-btn {
+    background: var(--card); border: 1px solid var(--border); color: var(--text);
+    padding: 9px 18px; border-radius: 10px; font-size: 13px; cursor: pointer;
+  }
+  .panel {
+    max-width: 420px; margin: 0 auto 14px; background: var(--card); border-radius: 14px; padding: 16px;
+  }
+  .panel h2 { font-size: 12px; color: var(--muted); font-weight: 600; margin: 0 0 12px; text-transform: uppercase; letter-spacing: 0.03em; }
+  .panel table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .panel td { padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .panel tr:last-child td { border-bottom: none; }
+  .risk-days { color: var(--accent); font-weight: 600; }
+  .belt-avg { color: var(--accent); font-weight: 600; }
+  .row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 2px; border-bottom: 1px solid var(--border); cursor: pointer;
+    font-size: 13px; transition: background 0.15s ease;
+  }
+  .row:last-child { border-bottom: none; }
+  .row:active { background: var(--card2, #2b2b2b); }
+  .row-left { display: flex; align-items: center; gap: 10px; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
+  .detail-box {
+    margin-top: 10px; padding: 12px; background: #2b2b2b; border-radius: 10px;
+    font-size: 12.5px; color: var(--muted); line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+
+<div id="setup">
+  <h1>Attendance Dashboard</h1>
+  <p>Paste your Apps Script URL and gym name once — saved on this device only.</p>
+  <input id="urlInput" type="url" placeholder="https://script.google.com/macros/s/XXXX/exec" autocomplete="off" autocapitalize="off" spellcheck="false">
+  <input id="gymInput" type="text" placeholder="Gym ID (e.g. g1)" autocomplete="off" autocapitalize="off" spellcheck="false">
+  <button id="saveBtn">Load Dashboard</button>
+</div>
+
+<div id="dash" style="display:none;">
+  <header>
+    <h1 id="gymTitle">Gym Attendance</h1>
+    <div class="sub" id="lastUpdated">—</div>
+  </header>
+
+  <div id="loading">Loading…</div>
+  <div id="err" style="display:none;"></div>
+
+  <div id="content" style="display:none;">
+    <div class="kpis">
+      <div class="kpi"><div class="label">Today</div><div class="value" id="kpiToday">0</div></div>
+      <div class="kpi"><div class="label">This week</div><div class="value" id="kpiWeek">0</div></div>
+      <div class="kpi"><div class="label">Total members</div><div class="value" id="kpiMembers">0</div></div>
+      <div class="kpi"><div class="label">All-time check-ins</div><div class="value" id="kpiTotal">0</div></div>
+    </div>
+    <div class="last-visit" style="display:none;">
+      <div class="label">Most recent check-in</div>
+      <div class="value" id="lastName">—</div>
+      <div class="time" id="lastTime"></div>
+    </div>
+
+    <div class="panel" id="atRiskPanel" style="display:none;">
+      <h2>At-risk members (10+ days away)</h2>
+      <div id="atRiskList"></div>
+      <div id="atRiskDetail" class="detail-box" style="display:none;"></div>
+    </div>
+
+    <div class="panel" id="beltPanel" style="display:none;">
+      <h2>Belt breakdown &middot; tap a row</h2>
+      <div id="beltList"></div>
+      <div id="beltDetail" class="detail-box" style="display:none;"></div>
+    </div>
+
+    <div class="refresh-wrap">
+      <button class="refresh-btn" id="refreshBtn">Refresh</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const STORAGE_KEY = 'gymDashboardUrl';
+  const GYM_KEY = 'gymDashboardGym';
+  let baseUrl = null, gymName = null;
+
+  async function loadData() {
+    document.getElementById('loading').style.display = 'block';
+    document.getElementById('err').style.display = 'none';
+    document.getElementById('content').style.display = 'none';
+    try {
+      const data = await jsonpRequest(baseUrl, { mode: 'data', gymId: gymName });
+      if (data.error) throw new Error(data.error);
+      render(data);
+      document.getElementById('lastUpdated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+    } catch (err) {
+      document.getElementById('loading').style.display = 'none';
+      const e = document.getElementById('err');
+      e.style.display = 'block';
+      e.textContent = 'Could not load data: ' + err.message;
+    }
+  }
+
+  function jsonpRequest(baseUrl, params) {
+    return new Promise((resolve, reject) => {
+      const cbName = 'jsonp_cb_' + Math.random().toString(36).slice(2);
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error('Request timed out — check the script URL is correct'));
+      }, 12000);
+
+      function cleanup() {
+        clearTimeout(timeout);
+        delete window[cbName];
+        if (script.parentNode) script.parentNode.removeChild(script);
+      }
+
+      window[cbName] = (data) => { cleanup(); resolve(data); };
+
+      const qs = Object.keys(params).map(k => k + '=' + encodeURIComponent(params[k])).join('&');
+      const script = document.createElement('script');
+      script.src = baseUrl + (baseUrl.includes('?') ? '&' : '?') + qs + '&callback=' + cbName;
+      script.onerror = () => { cleanup(); reject(new Error('Could not reach the script URL')); };
+      document.body.appendChild(script);
+    });
+  }
+
+  const BELT_COLORS = {
+    white: { dot: '#ffffff', text: '#cfcfcf', border: true },
+    blue: { dot: '#378ADD', text: '#7fb8ee' },
+    purple: { dot: '#7F77DD', text: '#a89fe8' },
+    brown: { dot: '#8B5A2B', text: '#c99a6b' },
+    black: { dot: '#111111', text: '#e8e8e8', border: true },
+    unspecified: { dot: '#666', text: 'var(--muted)' }
+  };
+  function beltStyle(beltName) {
+    const key = (beltName || '').toLowerCase().trim();
+    return BELT_COLORS[key] || BELT_COLORS.unspecified;
+  }
+
+  function render(data) {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('content').style.display = 'block';
+    if (data.gymName) document.getElementById('gymTitle').textContent = data.gymName;
+    document.getElementById('kpiToday').textContent = data.today || 0;
+    document.getElementById('kpiWeek').textContent = data.week || 0;
+    document.getElementById('kpiMembers').textContent = data.totalMembers || 0;
+    document.getElementById('kpiTotal').textContent = data.totalCheckIns || 0;
+
+    // At-risk members — tappable, shows a short suggested-action note
+    const atRiskPanel = document.getElementById('atRiskPanel');
+    const atRiskList = document.getElementById('atRiskList');
+    const atRiskDetail = document.getElementById('atRiskDetail');
+    if (data.atRisk && data.atRisk.length) {
+      atRiskPanel.style.display = 'block';
+      atRiskList.innerHTML = data.atRisk.map((m, i) =>
+        `<div class="row" data-idx="${i}">
+           <span>${m.name}</span>
+           <span class="risk-days">${m.daysSince}d away</span>
+         </div>`
+      ).join('');
+      atRiskList.querySelectorAll('.row').forEach(row => {
+        row.addEventListener('click', () => {
+          const m = data.atRisk[parseInt(row.dataset.idx, 10)];
+          atRiskDetail.style.display = 'block';
+          atRiskDetail.textContent = m.name + ' hasn\'t checked in for ' + m.daysSince + ' days. Worth a quick message to check in before they drift away.';
+        });
+      });
+    } else {
+      atRiskPanel.style.display = 'none';
+    }
+
+    // Belt breakdown — colored dots, tappable, shows a plain-English read
+    const beltPanel = document.getElementById('beltPanel');
+    const beltList = document.getElementById('beltList');
+    const beltDetail = document.getElementById('beltDetail');
+    if (data.beltBreakdown && data.beltBreakdown.length) {
+      beltPanel.style.display = 'block';
+      const maxAvg = Math.max(...data.beltBreakdown.map(b => b.avgVisits), 0.01);
+      beltList.innerHTML = data.beltBreakdown.map((b, i) => {
+        const style = beltStyle(b.belt);
+        return `<div class="row" data-idx="${i}">
+           <span class="row-left">
+             <span class="dot" style="background:${style.dot};${style.border ? 'border:1px solid var(--border);' : ''}"></span>
+             ${b.belt} &middot; ${b.memberCount} members
+           </span>
+           <span class="belt-avg" style="color:${style.text};">${b.avgVisits} avg</span>
+         </div>`;
+      }).join('');
+      beltList.querySelectorAll('.row').forEach(row => {
+        row.addEventListener('click', () => {
+          const b = data.beltBreakdown[parseInt(row.dataset.idx, 10)];
+          const ratio = b.avgVisits / maxAvg;
+          const read = ratio > 0.85 ? 'training the most consistently of any rank right now.'
+            : ratio < 0.5 ? 'attending noticeably less than your most active rank — worth keeping an eye on.'
+            : 'training at a fairly healthy, average rate.';
+          beltDetail.style.display = 'block';
+          beltDetail.textContent = b.belt + ' belts are ' + read;
+        });
+      });
+    } else {
+      beltPanel.style.display = 'none';
+    }
+  }
+
+  function init() {
+    const params = new URLSearchParams(window.location.search);
+    baseUrl = params.get('url');
+    gymName = params.get('gymId');
+    if (!baseUrl) { try { baseUrl = localStorage.getItem(STORAGE_KEY); } catch (e) { baseUrl = null; } }
+    if (!gymName) { try { gymName = localStorage.getItem(GYM_KEY); } catch (e) { gymName = null; } }
+
+    if (baseUrl && gymName) {
+      document.getElementById('setup').style.display = 'none';
+      document.getElementById('dash').style.display = 'block';
+      document.getElementById('gymTitle').textContent = gymName;
+      loadData();
+    }
+  }
+
+  document.getElementById('saveBtn').addEventListener('click', () => {
+    const val = document.getElementById('urlInput').value.trim();
+    const gym = document.getElementById('gymInput').value.trim();
+    if (!val || !gym) return;
+    try { localStorage.setItem(STORAGE_KEY, val); localStorage.setItem(GYM_KEY, gym); } catch (e) {}
+    baseUrl = val; gymName = gym;
+    document.getElementById('setup').style.display = 'none';
+    document.getElementById('dash').style.display = 'block';
+    document.getElementById('gymTitle').textContent = gymName;
+    loadData();
+  });
+  document.getElementById('refreshBtn').addEventListener('click', loadData);
+
+  // Auto-refresh: every 15 minutes while the page is open, no button press needed
+  setInterval(() => {
+    if (baseUrl && gymName) loadData();
+  }, 15 * 60 * 1000);
+
+  // Also refresh whenever the tab/phone screen comes back into view
+  // (e.g. it was left open overnight or the phone was locked)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && baseUrl && gymName) loadData();
+  });
+
+  init();
+})();
+</script>
+
+</body>
+</html>
