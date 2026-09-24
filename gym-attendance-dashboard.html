@@ -180,6 +180,15 @@
   <div id="err" style="display:none;"></div>
 
   <div id="content" style="display:none;">
+    <div class="panel">
+      <h2>Member lookup <span class="hint">Search a name to see their full check-in history</span></h2>
+      <div class="lookup-wrap">
+        <input id="memberSearch" type="text" placeholder="Search by name…" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <div class="search-results" id="searchResults"></div>
+      </div>
+      <div id="memberDetail" style="display:none; margin-top:14px;"></div>
+    </div>
+
     <div class="kpis">
       <div class="kpi"><div class="label">Today</div><div class="value" id="kpiToday">0</div></div>
       <div class="kpi"><div class="label">This week</div><div class="value" id="kpiWeek">0</div></div>
@@ -223,15 +232,6 @@
     <div class="panel" id="weekdayPanel" style="display:none;">
       <h2>Busiest days <span class="hint">Total check-ins by weekday</span></h2>
       <div class="bars-wrap" id="weekdayBars"></div>
-    </div>
-
-    <div class="panel">
-      <h2>Member lookup <span class="hint">Search a name to see their full check-in history</span></h2>
-      <div class="lookup-wrap">
-        <input id="memberSearch" type="text" placeholder="Search by name…" autocomplete="off" autocapitalize="off" spellcheck="false">
-        <div class="search-results" id="searchResults"></div>
-      </div>
-      <div id="memberDetail" style="display:none; margin-top:14px;"></div>
     </div>
 
     <div class="refresh-wrap">
@@ -490,7 +490,7 @@
     detailBox.style.display = 'block';
     detailBox.innerHTML = '<div style="color:var(--muted); font-size:13px;">Loading…</div>';
     try {
-      const result = await jsonpRequest(baseUrl, { mode: 'profile', id: id });
+      const result = await jsonpRequest(baseUrl, { mode: 'profile', id: id, gymId: gymName });
       if (result.error) throw new Error(result.error);
       renderMemberDetail(result);
     } catch (err) {
