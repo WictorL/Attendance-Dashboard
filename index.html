@@ -54,30 +54,31 @@
     letter-spacing: 0.02em;
   }
   #banner {
-    position: absolute; left: 0; right: 0; bottom: 0;
-    padding: 28px 20px 40px; text-align: center;
-    transform: translateY(110%);
-    transition: transform 0.25s ease;
-    background: linear-gradient(to top, rgba(0,0,0,0.85), rgba(0,0,0,0));
+    position: fixed; inset: 0; z-index: 30;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 16px; padding: 24px; text-align: center;
+    background: var(--good);
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.2s ease;
   }
-  #banner.show { transform: translateY(0); }
-  .pill {
-    display: inline-block; padding: 14px 28px; border-radius: 999px;
-    font-size: 22px; font-weight: 600; background: var(--accent);
+  #banner.show { opacity: 1; }
+  #banner.bad { background: var(--bad); }
+  #bannerIcon { font-size: clamp(64px, 22vw, 160px); line-height: 1; color: white; font-weight: 700; }
+  #pillText {
+    font-size: clamp(30px, 9vw, 64px); font-weight: 800; color: white;
+    line-height: 1.1; max-width: 90vw; word-break: break-word;
   }
-  #banner.good .pill { background: var(--good); }
-  #banner.bad .pill { background: var(--bad); }
-  #sub { margin-top: 8px; color: var(--muted); font-size: 14px; }
-  #start, #camError, #urlSetup {
+  #sub { color: rgba(255,255,255,0.85); font-size: clamp(15px, 4vw, 22px); max-width: 85vw; }
+  #start, #camError {
     position: fixed; inset: 0; background: var(--bg);
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     padding: 24px; text-align: center; z-index: 10;
   }
   #camError { display: none; z-index: 20; }
   #camError.show { display: flex; }
-  #start h1, #camError h1, #urlSetup h1 { font-size: 20px; margin: 0 0 8px; }
-  #start p, #camError p, #urlSetup p { color: var(--muted); font-size: 14px; margin: 0 0 22px; max-width: 320px; }
-  #startBtn, #reloadBtn, #saveUrlBtn {
+  #start h1, #camError h1 { font-size: 20px; margin: 0 0 8px; }
+  #start p, #camError p { color: var(--muted); font-size: 14px; margin: 0 0 22px; max-width: 320px; }
+  #startBtn, #reloadBtn {
     padding: 16px 32px; border-radius: 14px; border: none;
     background: var(--accent); color: white; font-size: 17px; font-weight: 600;
     cursor: pointer;
@@ -86,14 +87,7 @@
 </head>
 <body>
 
-<div id="urlSetup" style="display:none;">
-  <h1>Gym Check-In Scanner</h1>
-  <p>Paste your Apps Script check-in URL once — this only needs doing the first time on each device. From then on, QR codes only need to carry each student's short ID, not the whole link.</p>
-  <input id="baseUrlInput" type="url" placeholder="https://script.google.com/macros/s/XXXX/exec" autocomplete="off" autocapitalize="off" spellcheck="false" style="width:100%; max-width:340px; padding:14px 16px; border-radius:12px; margin-bottom:14px; border:1px solid #30363d; background:#161b22; color:#e6edf3; font-size:15px;">
-  <button id="saveUrlBtn">Save & Continue</button>
-</div>
-
-<div id="start" style="display:none;">
+<div id="start">
   <h1>Gym Check-In Scanner</h1>
   <p>Tap once to turn on the camera. After that, just hold each belt's QR code up to the screen — check-in happens automatically, no further tapping.</p>
   <button id="startBtn">Turn On Camera</button>
@@ -114,7 +108,8 @@
     <div id="status">Point camera at a belt QR code</div>
     <div id="debug" style="position:absolute; bottom:8px; left:8px; right:8px; font-family:monospace; font-size:11px; color:#8b949e; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:8px; max-height:80px; overflow:hidden; text-align:left;"></div>
     <div id="banner">
-      <div class="pill" id="pillText">—</div>
+      <div id="bannerIcon">✓</div>
+      <div id="pillText">—</div>
       <div id="sub"></div>
     </div>
   </div>
@@ -122,11 +117,10 @@
 
 <script>
 (function() {
-  const BASE_URL_KEY = 'gymScannerBaseUrl';
-  const urlSetupEl = document.getElementById('urlSetup');
-  const baseUrlInput = document.getElementById('baseUrlInput');
-  let baseUrl = null;
-  try { baseUrl = localStorage.getItem(BASE_URL_KEY); } catch (e) { baseUrl = null; }
+  // Fixed for your whole system — same Apps Script serves every gym, so this never needs
+  // to be re-entered per device. Only update this if you ever create a brand-new deployment
+  // (rather than a new version of the existing one), since that changes the URL.
+  const BASE_URL = 'https://script.google.com/macros/s/AKfycbwE1ET6tuq1FyWYum6vPduf-6ZTq85Z36cU88dv2RiS0J60ZoTpgYHu_Hg-eL4Tg_KjrQ/exec';
 
   const startEl = document.getElementById('start');
   const wrapEl = document.getElementById('wrap');
@@ -213,16 +207,19 @@
 
   // Builds the actual URL to fetch. Old belt labels encode the FULL link already, so those
   // are fetched as-is. New, shorter labels encode just the short ID — for those we combine
-  // the ID with the base URL saved on this device (see the one-time setup screen).
+  // the ID with the fixed BASE_URL above.
   function buildCheckInUrl(decodedText, id) {
     if (/^https?:\/\//i.test(decodedText)) return decodedText; // old-format full link
-    const sep = baseUrl.includes('?') ? '&' : '?';
-    return baseUrl + sep + 'id=' + encodeURIComponent(id);
+    const sep = BASE_URL.includes('?') ? '&' : '?';
+    return BASE_URL + sep + 'id=' + encodeURIComponent(id);
   }
+
+  const bannerIconEl = document.getElementById('bannerIcon');
 
   function showBanner(kind, title, sub) {
     bannerEl.classList.remove('good', 'bad');
     bannerEl.classList.add(kind, 'show');
+    bannerIconEl.textContent = kind === 'good' ? '✓' : '✕';
     pillText.textContent = title;
     subEl.textContent = sub || '';
     frameEl.classList.add('hit');
@@ -340,23 +337,6 @@
 
   document.getElementById('startBtn').addEventListener('click', startCamera);
   document.getElementById('reloadBtn').addEventListener('click', () => location.reload());
-
-  document.getElementById('saveUrlBtn').addEventListener('click', () => {
-    const val = baseUrlInput.value.trim();
-    if (!val) return;
-    try { localStorage.setItem(BASE_URL_KEY, val); } catch (e) {}
-    baseUrl = val;
-    urlSetupEl.style.display = 'none';
-    startEl.style.display = 'flex';
-  });
-
-  // Show the URL setup screen first if this device hasn't been configured yet;
-  // otherwise skip straight to the camera screen, same as before.
-  if (baseUrl) {
-    startEl.style.display = 'flex';
-  } else {
-    urlSetupEl.style.display = 'flex';
-  }
 })();
 </script>
 
