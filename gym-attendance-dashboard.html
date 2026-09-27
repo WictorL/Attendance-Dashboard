@@ -50,13 +50,14 @@
   .kpi {
     background: var(--card); border-top: 3px solid var(--accent); border: 1px solid var(--border);
     border-top: 3px solid var(--accent); border-radius: 14px; padding: 18px 16px;
+    width: 100%; text-align: left; font-family: inherit; cursor: pointer;
   }
+  .kpi.expanded { border-color: var(--accent); }
   .kpi .label { color: var(--muted); font-size: 11px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
   .kpi .value { font-size: 32px; font-weight: 700; font-family: 'Oswald', sans-serif; }
 
   #loading, #err { text-align: center; padding: 60px 20px; color: var(--muted); font-size: 14px; }
   #err { color: #ff6b6b; }
-  .refresh-wrap { text-align: center; margin-top: 20px; }
   .refresh-btn {
     background: var(--card); border: 1px solid var(--border); color: var(--text);
     padding: 9px 18px; border-radius: 10px; font-size: 13px; cursor: pointer; font-family: inherit;
@@ -114,15 +115,24 @@
   .cal-weekdays { margin-bottom: 6px; }
   .cal-weekdays span { font-size: 10px; color: #6B7280; text-align: center; }
   .cal-day {
+    all: unset; box-sizing: border-box; cursor: pointer; font-family: inherit;
     aspect-ratio: 1; border-radius: 6px; background: var(--card2);
     display: flex; align-items: center; justify-content: center;
     font-size: 11px; color: var(--muted);
   }
-  .cal-day.blank { background: transparent; }
+  .cal-day.blank { background: transparent; cursor: default; }
   .cal-day.today { border: 2px solid var(--accent); }
+  .cal-day.selected { box-shadow: 0 0 0 2px #fff inset; }
   .cal-legend { display: flex; align-items: center; justify-content: flex-end; gap: 5px; margin-top: 10px; }
   .cal-legend span.sw { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
   .cal-legend span.lbl { font-size: 10px; color: #6B7280; }
+
+  .cal-toggle-btn {
+    flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--card2); color: var(--muted); font-size: 12px; font-weight: 600;
+    cursor: pointer; font-family: inherit; text-transform: uppercase; letter-spacing: 0.3px;
+  }
+  .cal-toggle-btn.active { background: var(--accent); color: #14171C; border-color: var(--accent); }
 
   .bars-wrap { display: flex; align-items: flex-end; gap: 8px; height: 140px; }
   .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; }
@@ -173,7 +183,10 @@
 <div id="dash" style="display:none;">
   <header>
     <h1 id="gymTitle">Gym Attendance</h1>
-    <div class="sub" id="lastUpdated">—</div>
+    <div style="display:flex; align-items:center; justify-content:center; gap:10px; flex-wrap:wrap;">
+      <div class="sub" id="lastUpdated">—</div>
+      <button class="refresh-btn" id="refreshBtn">Refresh</button>
+    </div>
   </header>
 
   <div id="loading">Loading…</div>
@@ -190,10 +203,18 @@
     </div>
 
     <div class="kpis">
-      <div class="kpi"><div class="label">Today</div><div class="value" id="kpiToday">0</div></div>
-      <div class="kpi"><div class="label">This week</div><div class="value" id="kpiWeek">0</div></div>
-      <div class="kpi"><div class="label">Total members</div><div class="value" id="kpiMembers">0</div></div>
-      <div class="kpi"><div class="label">All-time check-ins</div><div class="value" id="kpiTotal">0</div></div>
+      <button type="button" class="kpi" data-kpi="today"><div class="label">Today</div><div class="value" id="kpiToday">0</div></button>
+      <button type="button" class="kpi" data-kpi="week"><div class="label">This week</div><div class="value" id="kpiWeek">0</div></button>
+      <button type="button" class="kpi" data-kpi="members"><div class="label">Total members</div><div class="value" id="kpiMembers">0</div></button>
+      <button type="button" class="kpi" data-kpi="total"><div class="label">All-time check-ins</div><div class="value" id="kpiTotal">0</div></button>
+    </div>
+
+    <div class="panel" id="kpiDetailPanel" style="display:none;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+        <h2 style="margin:0;" id="kpiDetailTitle">Details</h2>
+        <button type="button" class="clear-btn" id="kpiDetailClose">Close</button>
+      </div>
+      <div id="kpiDetailBody"></div>
     </div>
 
     <div class="panel" id="atRiskPanel" style="display:none;">
@@ -227,15 +248,23 @@
         <span class="sw" style="background:rgba(242,169,59,0.95)"></span>
         <span class="lbl">More</span>
       </div>
+
+      <div id="calDayDetail" style="display:none; margin-top:14px; padding-top:14px; border-top:1px solid var(--border);">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+          <h2 style="margin:0; font-size:13px;" id="calDayTitle">—</h2>
+          <button type="button" class="clear-btn" id="calDayClose">Close</button>
+        </div>
+        <div style="display:flex; gap:8px; margin-bottom:10px;">
+          <button type="button" class="cal-toggle-btn" id="calModeAttended" data-mode="attended">Attended</button>
+          <button type="button" class="cal-toggle-btn" id="calModeAbsent" data-mode="absent">Not attended</button>
+        </div>
+        <div id="calDayBody"></div>
+      </div>
     </div>
 
     <div class="panel" id="weekdayPanel" style="display:none;">
       <h2>Busiest days <span class="hint">Total check-ins by weekday</span></h2>
       <div class="bars-wrap" id="weekdayBars"></div>
-    </div>
-
-    <div class="refresh-wrap">
-      <button class="refresh-btn" id="refreshBtn">Refresh</button>
     </div>
   </div>
 </div>
@@ -246,7 +275,10 @@
   const GYM_KEY = 'gymDashboardGym';
   let baseUrl = null, gymName = null;
   let expandedBelt = null; // which belt row is currently drilled into, if any
+  let expandedKpi = null;  // which KPI card ('today' | 'week' | 'members' | 'total') is expanded, if any
   let calYear = null, calMonth = null, calDaysMap = {}; // currently displayed calendar month
+  let expandedDay = null;      // 'yyyy-MM-dd' currently drilled into, if any
+  let calViewMode = 'attended'; // 'attended' | 'absent' — persists as you click between days
   let allMembers = []; // full roster for this gym, used by the member-lookup search
 
   async function loadData() {
@@ -346,9 +378,12 @@
       calYear = data.calendarMonth.year;
       calMonth = data.calendarMonth.month;
       calDaysMap = data.calendarMonth.days || {};
+      expandedDay = null; // a fresh load may change which days have data — start collapsed
       renderCalendar();
+      renderCalDayDetail();
     }
     if (data.weekdayTotals) renderWeekdayBars(data.weekdayTotals);
+    renderKpiDetail();
   }
 
   // Renders the belt list, expanding whichever belt is in `expandedBelt` (if any)
@@ -394,6 +429,53 @@
     });
   }
 
+  // Renders whichever KPI's detail is currently expanded, using data already on hand
+  // (todayList / allMembers) — no extra request needed for any of the four views.
+  function renderKpiDetail() {
+    const panel = document.getElementById('kpiDetailPanel');
+    document.querySelectorAll('.kpi').forEach(btn => btn.classList.toggle('expanded', btn.dataset.kpi === expandedKpi));
+
+    if (!expandedKpi || !lastData) { panel.style.display = 'none'; return; }
+    panel.style.display = 'block';
+
+    let title = '', rowsHtml = '';
+
+    if (expandedKpi === 'today') {
+      title = 'Checked in today';
+      const list = (lastData.todayList || []);
+      rowsHtml = list.length ? list.map(m => {
+        const t = new Date(m.time);
+        return `<div class="visit-row"><span class="rname">${m.name}</span><span class="rstatus">${t.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</span></div>`;
+      }).join('') : '<div style="color:var(--muted); font-size:13px;">No check-ins yet today.</div>';
+
+    } else if (expandedKpi === 'week') {
+      title = 'Attended this week';
+      const list = (lastData.allMembers || []).filter(m => m.visitsThisWeek > 0)
+        .sort((a, b) => b.visitsThisWeek - a.visitsThisWeek);
+      rowsHtml = list.length ? list.map(m =>
+        `<div class="visit-row"><span class="rname">${m.name}</span><span class="rstatus">${m.visitsThisWeek} visit${m.visitsThisWeek === 1 ? '' : 's'}</span></div>`
+      ).join('') : '<div style="color:var(--muted); font-size:13px;">No check-ins yet this week.</div>';
+
+    } else if (expandedKpi === 'members') {
+      title = 'All members';
+      const list = (lastData.allMembers || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+      rowsHtml = list.length ? list.map(m =>
+        `<div class="visit-row"><span class="rname">${m.name} <span style="color:var(--muted); font-size:12px;">(${m.belt})</span></span><span class="rstatus">${m.totalVisits} all-time</span></div>`
+      ).join('') : '<div style="color:var(--muted); font-size:13px;">No members recorded yet.</div>';
+
+    } else if (expandedKpi === 'total') {
+      title = 'All-time check-ins by member';
+      const list = (lastData.allMembers || []).filter(m => m.totalVisits > 0)
+        .sort((a, b) => b.totalVisits - a.totalVisits);
+      rowsHtml = list.length ? list.map(m =>
+        `<div class="visit-row"><span class="rname">${m.name}</span><span class="rstatus">${m.totalVisits}</span></div>`
+      ).join('') : '<div style="color:var(--muted); font-size:13px;">No check-ins recorded yet.</div>';
+    }
+
+    document.getElementById('kpiDetailTitle').textContent = title;
+    document.getElementById('kpiDetailBody').innerHTML = `<div class="visit-list" style="max-height:320px;">${rowsHtml}</div>`;
+  }
+
   const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
   function dateKey(y, m, d) {
@@ -407,7 +489,7 @@
     const firstDay = new Date(calYear, calMonth, 1);
     const leading = (firstDay.getDay() + 6) % 7; // Monday-first blank cells before day 1
     const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
-    const counts = Object.values(calDaysMap);
+    const counts = Object.values(calDaysMap).map(names => names.length);
     const maxCount = counts.length ? Math.max(...counts) : 0;
 
     const todayReal = new Date();
@@ -416,7 +498,8 @@
     let html = '';
     for (let i = 0; i < leading; i++) html += '<span class="cal-day blank"></span>';
     for (let d = 1; d <= daysInMonth; d++) {
-      const count = calDaysMap[dateKey(calYear, calMonth, d)] || 0;
+      const key = dateKey(calYear, calMonth, d);
+      const count = (calDaysMap[key] || []).length;
       let style = '';
       if (count > 0 && maxCount > 0) {
         const opacity = (0.25 + (count / maxCount) * 0.75).toFixed(2);
@@ -424,9 +507,45 @@
         if (opacity >= 0.9) style += 'color:#14171C;font-weight:700;';
       }
       const isToday = isCurrentMonth && d === todayReal.getDate();
-      html += `<span class="cal-day${isToday ? ' today' : ''}" style="${style}">${d}</span>`;
+      const isSelected = expandedDay === key;
+      html += `<button type="button" class="cal-day${isToday ? ' today' : ''}${isSelected ? ' selected' : ''}" data-day="${key}" style="${style}">${d}</button>`;
     }
     document.getElementById('calGrid').innerHTML = html;
+
+    document.querySelectorAll('.cal-day[data-day]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const day = btn.dataset.day;
+        expandedDay = (expandedDay === day) ? null : day;
+        renderCalendar();       // re-render so the selected-day highlight updates
+        renderCalDayDetail();
+      });
+    });
+  }
+
+  // Shows who did/didn't attend on whichever day is currently selected. "Absent" is
+  // computed as the full roster (already loaded) minus that day's attendee names.
+  function renderCalDayDetail() {
+    const detailBox = document.getElementById('calDayDetail');
+    if (!expandedDay) { detailBox.style.display = 'none'; return; }
+    detailBox.style.display = 'block';
+
+    const [y, m, d] = expandedDay.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d);
+    document.getElementById('calDayTitle').textContent =
+      dateObj.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+
+    const attendedNames = calDaysMap[expandedDay] || [];
+    const allNames = (lastData && lastData.allMembers) ? lastData.allMembers.map(m => m.name) : [];
+    const absentNames = allNames.filter(n => !attendedNames.includes(n));
+
+    document.getElementById('calModeAttended').classList.toggle('active', calViewMode === 'attended');
+    document.getElementById('calModeAbsent').classList.toggle('active', calViewMode === 'absent');
+
+    const list = calViewMode === 'attended' ? attendedNames : absentNames;
+    const body = list.length
+      ? list.map(n => `<div class="visit-row"><span class="rname">${n}</span></div>`).join('')
+      : `<div style="color:var(--muted); font-size:13px;">${calViewMode === 'attended' ? 'No one checked in this day.' : 'Everyone checked in this day.'}</div>`;
+    document.getElementById('calDayBody').innerHTML = `<div class="visit-list" style="max-height:260px;">${body}</div>`;
   }
 
   async function changeMonth(delta) {
@@ -437,7 +556,9 @@
       const result = await jsonpRequest(baseUrl, { mode: 'calendar', gymId: gymName, year: newYear, month: newMonth });
       if (result.error) throw new Error(result.error);
       calYear = result.year; calMonth = result.month; calDaysMap = result.days || {};
+      expandedDay = null; // a different month's days — any previously selected day no longer applies
       renderCalendar();
+      renderCalDayDetail();
     } catch (err) {
       // Silently ignore — the visible month just won't change if the request fails
     }
@@ -562,6 +683,26 @@
   document.getElementById('refreshBtn').addEventListener('click', () => { expandedBelt = null; loadData(); });
   document.getElementById('calPrev').addEventListener('click', () => changeMonth(-1));
   document.getElementById('calNext').addEventListener('click', () => changeMonth(1));
+
+  document.getElementById('calDayClose').addEventListener('click', () => {
+    expandedDay = null;
+    renderCalendar();
+    renderCalDayDetail();
+  });
+  document.getElementById('calModeAttended').addEventListener('click', () => { calViewMode = 'attended'; renderCalDayDetail(); });
+  document.getElementById('calModeAbsent').addEventListener('click', () => { calViewMode = 'absent'; renderCalDayDetail(); });
+
+  document.querySelectorAll('.kpi[data-kpi]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.kpi;
+      expandedKpi = (expandedKpi === key) ? null : key;
+      renderKpiDetail();
+    });
+  });
+  document.getElementById('kpiDetailClose').addEventListener('click', () => {
+    expandedKpi = null;
+    renderKpiDetail();
+  });
 
   document.getElementById('memberSearch').addEventListener('input', (e) => {
     const q = e.target.value.trim().toLowerCase();
