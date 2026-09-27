@@ -50,11 +50,11 @@
   .kpi {
     background: var(--card); border-top: 3px solid var(--accent); border: 1px solid var(--border);
     border-top: 3px solid var(--accent); border-radius: 14px; padding: 18px 16px;
-    width: 100%; text-align: left; font-family: inherit; cursor: pointer;
+    width: 100%; text-align: left; font-family: inherit; cursor: pointer; color: var(--text);
   }
   .kpi.expanded { border-color: var(--accent); }
   .kpi .label { color: var(--muted); font-size: 11px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
-  .kpi .value { font-size: 32px; font-weight: 700; font-family: 'Oswald', sans-serif; }
+  .kpi .value { font-size: 32px; font-weight: 700; font-family: 'Oswald', sans-serif; color: var(--text); }
 
   #loading, #err { text-align: center; padding: 60px 20px; color: var(--muted); font-size: 14px; }
   #err { color: #ff6b6b; }
@@ -222,11 +222,6 @@
       <div id="atRiskList"></div>
     </div>
 
-    <div class="panel" id="beltPanel" style="display:none;">
-      <h2>Belt breakdown <span class="hint">Tap a belt to see its students</span></h2>
-      <div id="beltList"></div>
-    </div>
-
     <div class="panel" id="calPanel" style="display:none;">
       <div class="cal-head">
         <h2 style="margin:0;">This month</h2>
@@ -260,6 +255,11 @@
         </div>
         <div id="calDayBody"></div>
       </div>
+    </div>
+
+    <div class="panel" id="beltPanel" style="display:none;">
+      <h2>Belt breakdown <span class="hint">Tap a belt to see its students</span></h2>
+      <div id="beltList"></div>
     </div>
 
     <div class="panel" id="weekdayPanel" style="display:none;">
