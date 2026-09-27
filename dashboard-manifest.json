@@ -1,0 +1,13 @@
+{
+  "name": "Gym Attendance Dashboard",
+  "short_name": "Dashboard",
+  "start_url": "./gym-attendance-dashboard.html",
+  "display": "standalone",
+  "background_color": "#14171C",
+  "theme_color": "#14171C",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "dash-icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "dash-icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

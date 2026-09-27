@@ -4,6 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Gym Attendance</title>
+
+<!-- Lets this page be "added to home screen" on iPhone/iPad as a standalone app,
+     with its own icon and no Safari address bar. -->
+<link rel="manifest" href="./dashboard-manifest.json">
+<meta name="theme-color" content="#14171C">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Dashboard">
+<link rel="apple-touch-icon" href="./dash-icon-180.png">
+<link rel="icon" href="./dash-icon-192.png">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -186,6 +197,7 @@
     <div style="display:flex; align-items:center; justify-content:center; gap:10px; flex-wrap:wrap;">
       <div class="sub" id="lastUpdated">—</div>
       <button class="refresh-btn" id="refreshBtn">Refresh</button>
+      <a href="index.html" class="refresh-btn" style="text-decoration:none; display:inline-block;">Open Scanner</a>
     </div>
   </header>
 
