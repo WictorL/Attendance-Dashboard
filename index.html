@@ -59,7 +59,7 @@
   }
   #frame.hit { border-color: var(--good); }
   #status {
-    position: absolute; top: 16px; left: 0; right: 0;
+    position: absolute; top: 60px; left: 0; right: 0;
     text-align: center; font-size: 15px; color: var(--muted);
     letter-spacing: 0.02em;
   }
@@ -93,6 +93,11 @@
     background: var(--accent); color: white; font-size: 17px; font-weight: 600;
     cursor: pointer;
   }
+  .nav-link {
+    display: inline-block; text-decoration: none; color: var(--text);
+    background: rgba(22,27,34,0.85); border: 1px solid rgba(255,255,255,0.15);
+    padding: 8px 16px; border-radius: 999px; font-size: 13px;
+  }
 </style>
 </head>
 <body>
@@ -101,6 +106,7 @@
   <h1>Gym Check-In Scanner</h1>
   <p>Tap once to turn on the camera. After that, just hold each belt's QR code up to the screen — check-in happens automatically, no further tapping.</p>
   <button id="startBtn">Turn On Camera</button>
+  <div style="margin-top:18px;"><a class="nav-link" href="gym-attendance-dashboard.html">← Dashboard</a></div>
 </div>
 
 <div id="camError">
@@ -115,6 +121,7 @@
     <video id="video" playsinline muted autoplay></video>
     <canvas id="canvas"></canvas>
     <div id="frame"></div>
+    <a class="nav-link" href="gym-attendance-dashboard.html" style="position:absolute; top:16px; left:16px; z-index:6;">← Dashboard</a>
     <div id="status">Point camera at a belt QR code</div>
     <div id="debug" style="position:absolute; bottom:8px; left:8px; right:8px; font-family:monospace; font-size:11px; color:#8b949e; background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:8px; max-height:80px; overflow:hidden; text-align:left;"></div>
     <div id="banner">
