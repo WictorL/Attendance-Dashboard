@@ -293,8 +293,8 @@
 (function() {
   const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwE1ET6tuq1FyWYum6vPduf-6ZTq85Z36cU88dv2RiS0J60ZoTpgYHu_Hg-eL4Tg_KjrQ/exec"; // one shared URL now — no longer typed per gym
   const PROFILE_KEY = 'gymDashboardProfile'; // sessionStorage only — cleared when the tab/browser closes
-  let baseUrl = APPS_SCRIPT_URL, gymName = null;
-  let expandedBelt = null; // which belt row is currently drilled into, if any
+  const TOKEN_KEY = 'gymDashboardToken'; // the raw Google sign-in token, kept alongside the profile
+  let baseUrl = APPS_SCRIPT_URL, gymName = null, authToken = null;  let expandedBelt = null; // which belt row is currently drilled into, if any
   let expandedKpi = null;  // which KPI card ('today' | 'week' | 'members' | 'total') is expanded, if any
   let calYear = null, calMonth = null, calDaysMap = {}; // currently displayed calendar month
   let expandedDay = null;      // 'yyyy-MM-dd' currently drilled into, if any
@@ -306,7 +306,7 @@
     document.getElementById('err').style.display = 'none';
     document.getElementById('content').style.display = 'none';
     try {
-      const data = await jsonpRequest(baseUrl, { mode: 'data', gymId: gymName });
+      const data = await jsonpRequest(baseUrl, { mode: 'data', gymId: gymName , token: authToken });
       if (data.error) throw new Error(data.error);
       render(data);
       document.getElementById('lastUpdated').textContent = 'Updated ' + new Date().toLocaleTimeString();
@@ -320,7 +320,7 @@
     // Member roster for the lookup search — fetched separately so a failure here
     // never blocks the main dashboard from showing.
     try {
-      const memberListResult = await jsonpRequest(baseUrl, { mode: 'members', gymId: gymName });
+      const memberListResult = await jsonpRequest(baseUrl, { mode: 'members', gymId: gymName, token: authToken });
       if (memberListResult.members) allMembers = memberListResult.members;
     } catch (err) { /* search just won't have results if this fails */ }
   }
@@ -573,8 +573,7 @@
     if (newMonth < 0) { newMonth = 11; newYear--; }
     if (newMonth > 11) { newMonth = 0; newYear++; }
     try {
-      const result = await jsonpRequest(baseUrl, { mode: 'calendar', gymId: gymName, year: newYear, month: newMonth });
-      if (result.error) throw new Error(result.error);
+    const result = await jsonpRequest(baseUrl, { mode: 'calendar', gymId: gymName, year: newYear, month: newMonth, token: authToken });      if (result.error) throw new Error(result.error);
       calYear = result.year; calMonth = result.month; calDaysMap = result.days || {};
       expandedDay = null; // a different month's days — any previously selected day no longer applies
       renderCalendar();
@@ -691,8 +690,8 @@
         errBox.style.display = 'block';
         return;
       }
-      try { sessionStorage.setItem(PROFILE_KEY, JSON.stringify(result.profile)); } catch (e) {}
-      startDashboard(result.profile);
+     try { sessionStorage.setItem(PROFILE_KEY, JSON.stringify(result.profile)); sessionStorage.setItem('gymDashboardToken', idToken); } catch (e) {}
+      authToken = idToken;      startDashboard(result.profile);
     } catch (err) {
       errBox.textContent = 'Could not reach the server: ' + err.message;
       errBox.style.display = 'block';
@@ -709,21 +708,24 @@
   }
 
   function signOut() {
-    try { sessionStorage.removeItem(PROFILE_KEY); } catch (e) {}
-    gymName = null;
-    document.getElementById('dash').style.display = 'none';
-    document.getElementById('setup-error').style.display = 'none';
-    document.getElementById('setup').style.display = 'block';
-  }
+  try { sessionStorage.removeItem(PROFILE_KEY); sessionStorage.removeItem(TOKEN_KEY); } catch (e) {}
+  authToken = null;
+  gymName = null;
+  document.getElementById('dash').style.display = 'none';
+  document.getElementById('setup-error').style.display = 'none';
+  document.getElementById('setup').style.display = 'block';
+}
 
   function init() {
     // If this tab already has a verified profile from earlier in the session, skip
     // straight to the dashboard rather than asking to sign in again on every reload.
-    let cached = null;
-    try { cached = JSON.parse(sessionStorage.getItem(PROFILE_KEY)); } catch (e) { cached = null; }
-    if (cached && cached.role === 'Coach') {
-      startDashboard(cached);
-    }
+    let cached = null, cachedToken = null;
+try { cached = JSON.parse(sessionStorage.getItem(PROFILE_KEY)); } catch (e) { cached = null; }
+try { cachedToken = sessionStorage.getItem('gymDashboardToken'); } catch (e) { cachedToken = null; }
+if (cached && cached.role === 'Coach' && cachedToken) {
+  authToken = cachedToken;
+  startDashboard(cached);
+}
   }
 
   document.getElementById('refreshBtn').addEventListener('click', () => { expandedBelt = null; loadData(); });
