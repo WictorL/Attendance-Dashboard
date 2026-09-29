@@ -331,7 +331,7 @@
       const timeout = setTimeout(() => {
         cleanup();
         reject(new Error('Request timed out — check the script URL is correct'));
-      }, 12000);
+      }, 20000);
 
       function cleanup() {
         clearTimeout(timeout);
