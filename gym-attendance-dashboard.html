@@ -17,6 +17,10 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+
+<!-- Google Sign-In button library -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+
 <style>
   :root {
     --bg: #14171C; --card: #1E232B; --card2: #20262F;
@@ -34,16 +38,8 @@
   #setup { max-width: 400px; margin: 70px auto; text-align: center; }
   #setup h1 { font-size: 22px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
   #setup p { color: var(--muted); font-size: 14px; margin-bottom: 20px; }
-  #setup input {
-    width: 100%; padding: 14px 16px; border-radius: 12px; margin-bottom: 10px;
-    border: 1px solid var(--border); background: var(--card); color: var(--text); font-size: 15px;
-    font-family: inherit;
-  }
-  #setup button {
-    padding: 14px 28px; border-radius: 12px; border: none; width: 100%;
-    background: var(--accent); color: #14171C; font-weight: 700; font-size: 15px; cursor: pointer;
-    font-family: 'Oswald', sans-serif; text-transform: uppercase; letter-spacing: 0.5px;
-  }
+  #setup .g_id_signin { display: flex; justify-content: center; margin-top: 4px; }
+  #setup-error { color: #ff6b6b; font-size: 13px; margin-top: 16px; display: none; }
 
   header { text-align: center; margin-bottom: 24px; }
   header h1 {
@@ -185,10 +181,13 @@
 
 <div id="setup">
   <h1>Attendance Dashboard</h1>
-  <p>Paste your Apps Script URL and gym name once — saved on this device only.</p>
-  <input id="urlInput" type="url" placeholder="https://script.google.com/macros/s/XXXX/exec" autocomplete="off" autocapitalize="off" spellcheck="false">
-  <input id="gymInput" type="text" placeholder="Gym ID (e.g. g1)" autocomplete="off" autocapitalize="off" spellcheck="false">
-  <button id="saveBtn">Load Dashboard</button>
+  <p>Sign in with your gym account to continue.</p>
+  <div id="g_id_onload"
+       data-client_id="PASTE_YOUR_CLIENT_ID_HERE"
+       data-callback="handleCredentialResponse">
+  </div>
+  <div class="g_id_signin" data-type="standard"></div>
+  <div id="setup-error"></div>
 </div>
 
 <div id="dash" style="display:none;">
@@ -198,6 +197,7 @@
       <div class="sub" id="lastUpdated">—</div>
       <button class="refresh-btn" id="refreshBtn">Refresh</button>
       <a href="index.html" class="refresh-btn" style="text-decoration:none; display:inline-block;">Open Scanner</a>
+      <button class="refresh-btn" id="signOutBtn">Sign out</button>
     </div>
   </header>
 
@@ -282,10 +282,18 @@
 </div>
 
 <script>
+  // Google's sign-in button calls this by name once someone signs in.
+  // It has to live outside the closure below — window.__onGoogleLogin is set inside it.
+  function handleCredentialResponse(response) {
+    if (window.__onGoogleLogin) window.__onGoogleLogin(response.credential);
+  }
+</script>
+
+<script>
 (function() {
-  const STORAGE_KEY = 'gymDashboardUrl';
-  const GYM_KEY = 'gymDashboardGym';
-  let baseUrl = null, gymName = null;
+  const APPS_SCRIPT_URL = "PASTE_YOUR_APPS_SCRIPT_URL_HERE"; // one shared URL now — no longer typed per gym
+  const PROFILE_KEY = 'gymDashboardProfile'; // sessionStorage only — cleared when the tab/browser closes
+  let baseUrl = APPS_SCRIPT_URL, gymName = null;
   let expandedBelt = null; // which belt row is currently drilled into, if any
   let expandedKpi = null;  // which KPI card ('today' | 'week' | 'members' | 'total') is expanded, if any
   let calYear = null, calMonth = null, calDaysMap = {}; // currently displayed calendar month
@@ -666,33 +674,60 @@
     });
   }
 
-  function init() {
-    const params = new URLSearchParams(window.location.search);
-    baseUrl = params.get('url');
-    gymName = params.get('gymId');
-    if (!baseUrl) { try { baseUrl = localStorage.getItem(STORAGE_KEY); } catch (e) { baseUrl = null; } }
-    if (!gymName) { try { gymName = localStorage.getItem(GYM_KEY); } catch (e) { gymName = null; } }
+  // Called once Google confirms who signed in. The token is verified server-side —
+  // this page never decides the role itself, only reacts to what the backend says.
+  async function onGoogleLogin(idToken) {
+    const errBox = document.getElementById('setup-error');
+    errBox.style.display = 'none';
+    try {
+      const result = await jsonpRequest(APPS_SCRIPT_URL, { mode: 'verifyLogin', token: idToken });
+      if (!result.success) {
+        errBox.textContent = result.message || 'Could not sign you in.';
+        errBox.style.display = 'block';
+        return;
+      }
+      if (result.profile.role !== 'Coach') {
+        errBox.textContent = 'This dashboard is for coaches only.';
+        errBox.style.display = 'block';
+        return;
+      }
+      try { sessionStorage.setItem(PROFILE_KEY, JSON.stringify(result.profile)); } catch (e) {}
+      startDashboard(result.profile);
+    } catch (err) {
+      errBox.textContent = 'Could not reach the server: ' + err.message;
+      errBox.style.display = 'block';
+    }
+  }
+  window.__onGoogleLogin = onGoogleLogin; // called by handleCredentialResponse, defined outside this closure
 
-    if (baseUrl && gymName) {
-      document.getElementById('setup').style.display = 'none';
-      document.getElementById('dash').style.display = 'block';
-      document.getElementById('gymTitle').textContent = gymName;
-      loadData();
+  function startDashboard(profile) {
+    gymName = profile.gymId;
+    document.getElementById('setup').style.display = 'none';
+    document.getElementById('dash').style.display = 'block';
+    document.getElementById('gymTitle').textContent = profile.gymName || gymName;
+    loadData();
+  }
+
+  function signOut() {
+    try { sessionStorage.removeItem(PROFILE_KEY); } catch (e) {}
+    gymName = null;
+    document.getElementById('dash').style.display = 'none';
+    document.getElementById('setup-error').style.display = 'none';
+    document.getElementById('setup').style.display = 'block';
+  }
+
+  function init() {
+    // If this tab already has a verified profile from earlier in the session, skip
+    // straight to the dashboard rather than asking to sign in again on every reload.
+    let cached = null;
+    try { cached = JSON.parse(sessionStorage.getItem(PROFILE_KEY)); } catch (e) { cached = null; }
+    if (cached && cached.role === 'Coach') {
+      startDashboard(cached);
     }
   }
 
-  document.getElementById('saveBtn').addEventListener('click', () => {
-    const val = document.getElementById('urlInput').value.trim();
-    const gym = document.getElementById('gymInput').value.trim();
-    if (!val || !gym) return;
-    try { localStorage.setItem(STORAGE_KEY, val); localStorage.setItem(GYM_KEY, gym); } catch (e) {}
-    baseUrl = val; gymName = gym;
-    document.getElementById('setup').style.display = 'none';
-    document.getElementById('dash').style.display = 'block';
-    document.getElementById('gymTitle').textContent = gymName;
-    loadData();
-  });
   document.getElementById('refreshBtn').addEventListener('click', () => { expandedBelt = null; loadData(); });
+  document.getElementById('signOutBtn').addEventListener('click', signOut);
   document.getElementById('calPrev').addEventListener('click', () => changeMonth(-1));
   document.getElementById('calNext').addEventListener('click', () => changeMonth(1));
 
