@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>My Attendance</title>
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+
 <style>
   :root {
     --bg: #161616; --card: #232323; --card2: #2b2b2b;
@@ -16,21 +19,31 @@
     min-height: 100%;
   }
   body { padding: env(safe-area-inset-top, 20px) 16px calc(env(safe-area-inset-bottom, 20px) + 16px); }
-  #setup { max-width: 420px; margin: 60px auto; text-align: center; }
-  #setup h1 { font-size: 19px; margin-bottom: 8px; }
-  #setup p { color: var(--muted); font-size: 14px; margin-bottom: 20px; }
-  #setup input {
-    width: 100%; padding: 14px 16px; border-radius: 12px; margin-bottom: 10px;
-    border: 1px solid var(--border); background: var(--card); color: var(--text); font-size: 15px;
+
+  .screen { max-width: 420px; margin: 60px auto; text-align: center; }
+  .screen h1 { font-size: 19px; margin-bottom: 8px; }
+  .screen p { color: var(--muted); font-size: 14px; margin-bottom: 20px; }
+  .screen .g_id_signin { display: flex; justify-content: center; margin-top: 4px; }
+
+  .pin-input {
+    width: 100%; padding: 16px; border-radius: 12px; margin-bottom: 10px;
+    border: 1px solid var(--border); background: var(--card); color: var(--text);
+    font-size: 26px; letter-spacing: 10px; text-align: center; font-family: inherit;
   }
-  #setup button {
+  .btn {
     padding: 14px 28px; border-radius: 12px; border: none; width: 100%;
     background: var(--accent); color: #161616; font-weight: 700; font-size: 15px; cursor: pointer;
+    font-family: inherit;
   }
-  #setup small { display:block; color: var(--muted); margin-top: 16px; font-size: 12px; }
-  .card-top {
-    display: flex; align-items: center; gap: 14px; margin-bottom: 18px;
+  .btn.secondary { background: var(--card); color: var(--text); border: 1px solid var(--border); }
+  .link-btn {
+    all: unset; cursor: pointer; color: var(--muted); font-size: 13px; text-decoration: underline;
+    display: block; margin-top: 14px; text-align: center;
   }
+  .screen-error { color: #ff6b6b; font-size: 13px; margin-top: 14px; display: none; }
+  .screen-note { color: var(--muted); font-size: 12px; margin-top: 14px; }
+
+  .card-top { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
   .avatar {
     width: 54px; height: 54px; border-radius: 50%; background: var(--accent);
     display: flex; align-items: center; justify-content: center;
@@ -52,19 +65,54 @@
   tr:last-child td { border-bottom: none; }
   #err { color: #ff6b6b; font-size: 13px; text-align: center; padding: 20px; }
   #loading { text-align: center; color: var(--muted); padding: 40px; }
+
+  .checkin-row { display: flex; gap: 10px; }
+  .checkin-row .pin-input { font-size: 20px; letter-spacing: 6px; margin-bottom: 0; }
+  .scanner-link {
+    display: block; text-align: center; padding: 14px; border-radius: 12px;
+    background: var(--card2); color: var(--text); text-decoration: none; font-weight: 600; font-size: 14px;
+    margin-bottom: 12px;
+  }
+  .checkin-status { font-size: 13px; margin-top: 10px; text-align: center; min-height: 18px; }
+  .checkin-status.ok { color: #4ade80; }
+  .checkin-status.bad { color: #ff6b6b; }
 </style>
 </head>
 <body>
 
-<div id="setup">
+<!-- State A: not signed in on this device yet -->
+<div id="signinScreen" class="screen" style="display:none;">
   <h1>My Attendance</h1>
-  <p>Enter your check-in code (found on your belt tag) to view your attendance history.</p>
-  <input id="urlInput" type="url" placeholder="Apps Script URL (set up once)" autocomplete="off" autocapitalize="off" spellcheck="false">
-  <input id="idInput" type="text" placeholder="Your ID (e.g. a4x9k2)" autocomplete="off" autocapitalize="off" spellcheck="false">
-  <button id="loadBtn">View My Attendance</button>
-  <small>This link can be bookmarked so you don't need to re-enter these each time.</small>
+  <p>Sign in with the Google account your gym has on file for you.</p>
+  <div id="g_id_onload"
+       data-client_id="521793405590-qdr041egps4kkc41jda773qoi28sql8q.apps.googleusercontent.com"
+       data-callback="handleCredentialResponse">
+  </div>
+  <div class="g_id_signin" data-type="standard"></div>
+  <div class="screen-error" id="signinError"></div>
 </div>
 
+<!-- State B: choose/replace a PIN, shown right after a fresh Google sign-in -->
+<div id="pinSetupScreen" class="screen" style="display:none;">
+  <h1>Set your PIN</h1>
+  <p>This 4-digit PIN checks you in at the gym and unlocks this page quickly next time — no need to sign in with Google again on this device.</p>
+  <input id="newPinInput" class="pin-input" type="tel" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="off">
+  <button class="btn" id="savePinBtn">Save PIN</button>
+  <button class="link-btn" id="skipPinBtn" style="display:none;">Keep my current PIN</button>
+  <div class="screen-error" id="pinSetupError"></div>
+</div>
+
+<!-- State C: device already known, just needs the PIN to unlock -->
+<div id="unlockScreen" class="screen" style="display:none;">
+  <h1 id="unlockGreeting">Welcome back</h1>
+  <p>Enter your PIN to continue.</p>
+  <input id="unlockPinInput" class="pin-input" type="tel" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="off">
+  <button class="btn" id="unlockBtn">Unlock</button>
+  <button class="link-btn" id="forgotPinBtn">Forgot your PIN? Sign in with Google</button>
+  <div class="screen-error" id="unlockError"></div>
+</div>
+
+<!-- State D: the actual profile -->
 <div id="profile" style="display:none; max-width: 520px; margin: 0 auto;">
   <div id="loading">Loading…</div>
   <div id="err" style="display:none;"></div>
@@ -76,6 +124,18 @@
         <div class="belt" id="belt">—</div>
       </div>
     </div>
+
+    <div class="panel">
+      <h2>Check in</h2>
+      <a href="index.html" class="scanner-link">Open Scanner</a>
+      <div class="checkin-row">
+        <input id="checkinPinInput" class="pin-input" type="tel" inputmode="numeric" maxlength="4" placeholder="PIN" autocomplete="off">
+        <button class="btn" id="checkinBtn" style="width:auto; white-space:nowrap; padding:14px 20px;">Check In</button>
+      </div>
+      <div class="checkin-status" id="checkinStatus"></div>
+      <div class="screen-note">Both options only work while you're at the gym.</div>
+    </div>
+
     <div class="kpis">
       <div class="kpi"><div class="label">Total visits</div><div class="value" id="kpiTotal">0</div></div>
       <div class="kpi"><div class="label">This month</div><div class="value" id="kpiMonth">0</div></div>
@@ -89,29 +149,191 @@
       <h2>Recent visits</h2>
       <table><tbody id="recentTable"></tbody></table>
     </div>
+    <button class="link-btn" id="signOutBtn">Not you? Sign out</button>
   </div>
 </div>
 
 <script>
+  // Google's sign-in button calls this by name. Lives outside the closure below —
+  // window.__onGoogleLogin is assigned inside it once the page's own code runs.
+  function handleCredentialResponse(response) {
+    if (window.__onGoogleLogin) window.__onGoogleLogin(response.credential);
+  }
+</script>
+
+<script>
 (function() {
-  const URL_KEY = 'gymScriptUrl';
-  const ID_KEY = 'gymMemberId';
+  const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwE1ET6tuq1FyWYum6vPduf-6ZTq85Z36cU88dv2RiS0J60ZoTpgYHu_Hg-eL4Tg_KjrQ/exec";
+  const PROFILE_KEY = 'gymMemberProfile';   // localStorage — remembered permanently on this device
+  const UNLOCKED_KEY = 'gymMemberUnlocked'; // sessionStorage — cleared when the tab/app closes
+
+  let member = null;       // { name, gymId, gymName, memberId } — the remembered device identity
+  let pendingLogin = null; // { idToken, profile } — held only during the sign-in → set-PIN handoff
+
+  function showScreen(id) {
+    ['signinScreen', 'pinSetupScreen', 'unlockScreen', 'profile'].forEach(s => {
+      document.getElementById(s).style.display = (s === id) ? 'block' : 'none';
+    });
+  }
+
+  function jsonpRequest(baseUrl, params) {
+    return new Promise((resolve, reject) => {
+      const cbName = 'jsonp_cb_' + Math.random().toString(36).slice(2);
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error('Request timed out — check your connection and try again'));
+      }, 20000);
+
+      function cleanup() {
+        clearTimeout(timeout);
+        delete window[cbName];
+        if (script.parentNode) script.parentNode.removeChild(script);
+      }
+
+      window[cbName] = (data) => { cleanup(); resolve(data); };
+
+      const qs = Object.keys(params).map(k => k + '=' + encodeURIComponent(params[k])).join('&');
+      const script = document.createElement('script');
+      script.src = baseUrl + (baseUrl.includes('?') ? '&' : '?') + qs + '&callback=' + cbName;
+      script.onerror = () => { cleanup(); reject(new Error('Could not reach the script URL')); };
+      document.body.appendChild(script);
+    });
+  }
+
+  function getLocation() {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) { reject(new Error('Location is not available on this device')); return; }
+      navigator.geolocation.getCurrentPosition(
+        pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => reject(new Error('Could not get your location — check location permission is allowed')),
+        { timeout: 10000 }
+      );
+    });
+  }
+
+  // ---------- State A: Google sign-in ----------
+
+  async function onGoogleLogin(idToken) {
+    const errBox = document.getElementById('signinError');
+    errBox.style.display = 'none';
+    try {
+      const result = await jsonpRequest(APPS_SCRIPT_URL, { mode: 'verifyLogin', token: idToken });
+      if (!result.success) {
+        errBox.textContent = result.message || 'Could not sign you in.';
+        errBox.style.display = 'block';
+        return;
+      }
+      if (result.profile.role !== 'Member') {
+        errBox.textContent = 'This page is for members only.';
+        errBox.style.display = 'block';
+        return;
+      }
+      pendingLogin = { idToken: idToken, profile: result.profile };
+      const skipBtn = document.getElementById('skipPinBtn');
+      skipBtn.style.display = result.profile.hasPin ? 'block' : 'none';
+      document.getElementById('newPinInput').value = '';
+      document.getElementById('pinSetupError').style.display = 'none';
+      showScreen('pinSetupScreen');
+    } catch (err) {
+      errBox.textContent = 'Could not reach the server: ' + err.message;
+      errBox.style.display = 'block';
+    }
+  }
+  window.__onGoogleLogin = onGoogleLogin;
+
+  // ---------- State B: set/replace PIN ----------
+
+  function rememberDevice(profile) {
+    member = { name: profile.name, gymId: profile.gymId, gymName: profile.gymName, memberId: profile.memberId };
+    try { localStorage.setItem(PROFILE_KEY, JSON.stringify(member)); } catch (e) {}
+    try { sessionStorage.setItem(UNLOCKED_KEY, '1'); } catch (e) {}
+  }
+
+  async function savePin() {
+    const errBox = document.getElementById('pinSetupError');
+    errBox.style.display = 'none';
+    const pin = document.getElementById('newPinInput').value.trim();
+    if (!/^[0-9]{4}$/.test(pin)) {
+      errBox.textContent = 'Enter exactly 4 digits.';
+      errBox.style.display = 'block';
+      return;
+    }
+    try {
+      const result = await jsonpRequest(APPS_SCRIPT_URL, { mode: 'setPin', token: pendingLogin.idToken, pin: pin });
+      if (!result.success) {
+        errBox.textContent = result.message || 'Could not save PIN.';
+        errBox.style.display = 'block';
+        return;
+      }
+      rememberDevice(pendingLogin.profile);
+      pendingLogin = null;
+      loadAndShowProfile();
+    } catch (err) {
+      errBox.textContent = 'Could not reach the server: ' + err.message;
+      errBox.style.display = 'block';
+    }
+  }
+
+  function skipPin() {
+    rememberDevice(pendingLogin.profile);
+    pendingLogin = null;
+    loadAndShowProfile();
+  }
+
+  // ---------- State C: unlock a remembered device ----------
+
+  async function unlockWithPin() {
+    const errBox = document.getElementById('unlockError');
+    errBox.style.display = 'none';
+    const pin = document.getElementById('unlockPinInput').value.trim();
+    if (!/^[0-9]{4}$/.test(pin)) {
+      errBox.textContent = 'Enter exactly 4 digits.';
+      errBox.style.display = 'block';
+      return;
+    }
+    try {
+      const result = await jsonpRequest(APPS_SCRIPT_URL, {
+        mode: 'verifyPin', gymId: member.gymId, memberId: member.memberId, pin: pin
+      });
+      if (!result.success) {
+        errBox.textContent = result.message || 'Incorrect PIN.';
+        errBox.style.display = 'block';
+        return;
+      }
+      try { sessionStorage.setItem(UNLOCKED_KEY, '1'); } catch (e) {}
+      loadAndShowProfile();
+    } catch (err) {
+      errBox.textContent = 'Could not reach the server: ' + err.message;
+      errBox.style.display = 'block';
+    }
+  }
+
+  function forgotPin() {
+    // Falls back to a full Google sign-in, which always leads back to the PIN-setup
+    // screen — so signing in again doubles as the "reset my PIN" flow.
+    showScreen('signinScreen');
+  }
+
+  function signOut() {
+    try { localStorage.removeItem(PROFILE_KEY); sessionStorage.removeItem(UNLOCKED_KEY); } catch (e) {}
+    member = null;
+    showScreen('signinScreen');
+  }
+
+  // ---------- State D: the profile itself ----------
 
   function fmtDate(d) {
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   }
 
-  async function loadProfile(baseUrl, id) {
-    document.getElementById('setup').style.display = 'none';
-    document.getElementById('profile').style.display = 'block';
+  async function loadAndShowProfile() {
+    showScreen('profile');
     document.getElementById('loading').style.display = 'block';
     document.getElementById('err').style.display = 'none';
     document.getElementById('content').style.display = 'none';
     try {
-      const sep = baseUrl.includes('?') ? '&' : '?';
-      const res = await fetch(baseUrl + sep + 'mode=profile&id=' + encodeURIComponent(id), { cache: 'no-store' });
-      const data = await res.json();
-      if (data.error || !data.member) throw new Error('ID not recognised');
+      const data = await jsonpRequest(APPS_SCRIPT_URL, { mode: 'profile', id: member.memberId, gymId: member.gymId });
+      if (data.error || !data.member) throw new Error('Profile not found');
       render(data);
     } catch (err) {
       document.getElementById('loading').style.display = 'none';
@@ -136,7 +358,6 @@
     document.getElementById('kpiMonth').textContent = monthCount;
     document.getElementById('kpiLast').textContent = visits.length ? fmtDate(visits[0]) : '—';
 
-    // 28-day heatmap
     const heat = document.getElementById('heatmap');
     heat.innerHTML = '';
     for (let i = 27; i >= 0; i--) {
@@ -149,7 +370,6 @@
       heat.appendChild(cell);
     }
 
-    // Recent visits table
     const recentEl = document.getElementById('recentTable');
     const recent = visits.slice(0, 8);
     recentEl.innerHTML = recent.length ? recent.map(d =>
@@ -157,27 +377,59 @@
     ).join('') : '<tr><td style="color:var(--muted);">No visits recorded yet</td></tr>';
   }
 
-  function init() {
-    // Support direct links like ?url=...&id=... so a member's personal link can skip the form entirely
-    const params = new URLSearchParams(window.location.search);
-    let baseUrl = params.get('url');
-    let id = params.get('id');
-
-    if (!baseUrl) { try { baseUrl = localStorage.getItem(URL_KEY); } catch (e) {} }
-    if (!id) { try { id = localStorage.getItem(ID_KEY); } catch (e) {} }
-
-    if (baseUrl && id) {
-      loadProfile(baseUrl, id);
+  async function checkInWithPin() {
+    const statusEl = document.getElementById('checkinStatus');
+    const pin = document.getElementById('checkinPinInput').value.trim();
+    if (!/^[0-9]{4}$/.test(pin)) {
+      statusEl.textContent = 'Enter your 4-digit PIN.';
+      statusEl.className = 'checkin-status bad';
+      return;
+    }
+    statusEl.textContent = 'Getting your location…';
+    statusEl.className = 'checkin-status';
+    try {
+      const loc = await getLocation();
+      statusEl.textContent = 'Checking in…';
+      const result = await jsonpRequest(APPS_SCRIPT_URL, {
+        mode: 'pinCheckIn', gymId: member.gymId, memberId: member.memberId, pin: pin, lat: loc.lat, lng: loc.lng
+      });
+      if (!result.success) {
+        statusEl.textContent = result.error || 'Could not check in.';
+        statusEl.className = 'checkin-status bad';
+        return;
+      }
+      statusEl.textContent = 'Checked in — see you on the mat!';
+      statusEl.className = 'checkin-status ok';
+      document.getElementById('checkinPinInput').value = '';
+    } catch (err) {
+      statusEl.textContent = err.message;
+      statusEl.className = 'checkin-status bad';
     }
   }
 
-  document.getElementById('loadBtn').addEventListener('click', () => {
-    const url = document.getElementById('urlInput').value.trim();
-    const id = document.getElementById('idInput').value.trim();
-    if (!url || !id) return;
-    try { localStorage.setItem(URL_KEY, url); localStorage.setItem(ID_KEY, id); } catch (e) {}
-    loadProfile(url, id);
-  });
+  // ---------- Startup ----------
+
+  function init() {
+    try { member = JSON.parse(localStorage.getItem(PROFILE_KEY)); } catch (e) { member = null; }
+    let unlockedThisSession = false;
+    try { unlockedThisSession = sessionStorage.getItem(UNLOCKED_KEY) === '1'; } catch (e) {}
+
+    if (member && unlockedThisSession) {
+      loadAndShowProfile();
+    } else if (member) {
+      document.getElementById('unlockGreeting').textContent = 'Welcome back' + (member.name ? ', ' + member.name.split(' ')[0] : '');
+      showScreen('unlockScreen');
+    } else {
+      showScreen('signinScreen');
+    }
+  }
+
+  document.getElementById('savePinBtn').addEventListener('click', savePin);
+  document.getElementById('skipPinBtn').addEventListener('click', skipPin);
+  document.getElementById('unlockBtn').addEventListener('click', unlockWithPin);
+  document.getElementById('forgotPinBtn').addEventListener('click', forgotPin);
+  document.getElementById('signOutBtn').addEventListener('click', signOut);
+  document.getElementById('checkinBtn').addEventListener('click', checkInWithPin);
 
   init();
 })();
