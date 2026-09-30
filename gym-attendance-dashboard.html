@@ -305,8 +305,14 @@
     document.getElementById('loading').style.display = 'block';
     document.getElementById('err').style.display = 'none';
     document.getElementById('content').style.display = 'none';
+
+    // Both requests start at the same time now, instead of one waiting for the
+    // other to finish first — this roughly halves the wait compared to before.
+    const dataPromise = jsonpRequest(baseUrl, { mode: 'data', gymId: gymName, token: authToken });
+    const membersPromise = jsonpRequest(baseUrl, { mode: 'members', gymId: gymName, token: authToken });
+
     try {
-      const data = await jsonpRequest(baseUrl, { mode: 'data', gymId: gymName , token: authToken });
+      const data = await dataPromise;
       if (data.error) throw new Error(data.error);
       render(data);
       document.getElementById('lastUpdated').textContent = 'Updated ' + new Date().toLocaleTimeString();
@@ -316,6 +322,13 @@
       e.style.display = 'block';
       e.textContent = 'Could not load data: ' + err.message;
     }
+
+    // Member roster for the lookup search — a failure here never blocks the dashboard from showing.
+    try {
+      const memberListResult = await membersPromise;
+      if (memberListResult.members) allMembers = memberListResult.members;
+    } catch (err) { /* search just won't have results if this fails */ }
+  }
 
     // Member roster for the lookup search — fetched separately so a failure here
     // never blocks the main dashboard from showing.
