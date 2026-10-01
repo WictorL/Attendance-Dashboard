@@ -5,8 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>My Attendance</title>
 
-<script src="https://accounts.google.com/gsi/client" async defer></script>
-
 <style>
   :root {
     --bg: #161616; --card: #232323; --card2: #2b2b2b;
@@ -23,7 +21,6 @@
   .screen { max-width: 420px; margin: 60px auto; text-align: center; }
   .screen h1 { font-size: 19px; margin-bottom: 8px; }
   .screen p { color: var(--muted); font-size: 14px; margin-bottom: 20px; }
-  .screen .g_id_signin { display: flex; justify-content: center; margin-top: 4px; }
 
   .pin-input {
     width: 100%; padding: 16px; border-radius: 12px; margin-bottom: 10px;
@@ -89,11 +86,7 @@
 <div id="signinScreen" class="screen" style="display:none;">
   <h1>My Attendance</h1>
   <p>Sign in with the Google account your gym has on file for you.</p>
-  <div id="g_id_onload"
-       data-client_id="521793405590-qdr041egps4kkc41jda773qoi28sql8q.apps.googleusercontent.com"
-       data-callback="handleCredentialResponse">
-  </div>
-  <div class="g_id_signin" data-type="standard"></div>
+  <button type="button" class="btn" id="googleSignInBtn">Sign in with Google</button>
   <div class="screen-error" id="signinError"></div>
 </div>
 
@@ -163,21 +156,68 @@
 </div>
 
 <script>
-  // Google's sign-in button calls this by name. Lives outside the closure below —
-  // window.__onGoogleLogin is assigned inside it once the page's own code runs.
-  function handleCredentialResponse(response) {
-    if (window.__onGoogleLogin) window.__onGoogleLogin(response.credential);
-  }
-</script>
-
-<script>
 (function() {
   const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwE1ET6tuq1FyWYum6vPduf-6ZTq85Z36cU88dv2RiS0J60ZoTpgYHu_Hg-eL4Tg_KjrQ/exec";
+  const GOOGLE_CLIENT_ID = "521793405590-qdr041egps4kkc41jda773qoi28sql8q.apps.googleusercontent.com";
   const PROFILE_KEY = 'gymMemberProfile';   // localStorage — remembered permanently on this device
   const UNLOCKED_KEY = 'gymMemberUnlocked'; // sessionStorage — cleared when the tab/app closes
+  const NONCE_KEY = 'gymMemberNonce';       // one-time value used to confirm a returned token is genuinely ours
 
   let member = null;       // { name, gymId, gymName, memberId } — the remembered device identity
   let pendingLogin = null; // { idToken, profile } — held only during the sign-in → set-PIN handoff
+
+  // ---------- Google sign-in (redirect flow) ----------
+  // Safari blocks Google's normal popup-based sign-in button outright, so instead of
+  // a popup we send the whole page to Google's sign-in screen and back — a plain page
+  // navigation, which works identically in every browser. Google returns the result
+  // after a "#" in the URL, which browsers never send to any server.
+
+  function randomString() {
+    const arr = new Uint8Array(16);
+    (window.crypto || window.msCrypto).getRandomValues(arr);
+    return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  function decodeJwtPayload(token) {
+    const payload = token.split('.')[1];
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(decodeURIComponent(atob(base64).split('').map(c =>
+      '%' + c.charCodeAt(0).toString(16).padStart(2, '0')
+    ).join('')));
+  }
+
+  function startGoogleSignIn() {
+    const nonce = randomString();
+    try { sessionStorage.setItem(NONCE_KEY, nonce); } catch (e) {}
+    const redirectUri = window.location.origin + window.location.pathname;
+    const params = {
+      client_id: GOOGLE_CLIENT_ID,
+      redirect_uri: redirectUri,
+      response_type: 'id_token',
+      scope: 'openid email profile',
+      nonce: nonce
+    };
+    const qs = Object.keys(params).map(k => k + '=' + encodeURIComponent(params[k])).join('&');
+    window.location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + qs;
+  }
+
+  // Checks whether this page load IS Google returning us from sign-in. Returns the
+  // token if so and valid, otherwise null.
+  function consumeAuthRedirect() {
+    if (!window.location.hash || window.location.hash.indexOf('id_token=') === -1) return null;
+
+    const hashParams = new URLSearchParams(window.location.hash.slice(1));
+    const idToken = hashParams.get('id_token');
+    const returnedNonce = (function() { try { return decodeJwtPayload(idToken).nonce; } catch (e) { return null; } })();
+
+    let expectedNonce = null;
+    try { expectedNonce = sessionStorage.getItem(NONCE_KEY); sessionStorage.removeItem(NONCE_KEY); } catch (e) {}
+
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+
+    if (!idToken || !returnedNonce || returnedNonce !== expectedNonce) return null;
+    return idToken;
+  }
   let bannerDismissed = false; // per-visit only — resets if the page is reloaded
   let hasCheckedInThisLoad = false; // stop nagging once they've actually checked in
 
@@ -250,7 +290,7 @@
       errBox.style.display = 'block';
     }
   }
-  window.__onGoogleLogin = onGoogleLogin;
+
 
   // ---------- State B: set/replace PIN ----------
 
@@ -443,6 +483,14 @@
   // ---------- Startup ----------
 
   function init() {
+    // If this load IS Google returning us from sign-in, handle that first —
+    // it takes priority over any remembered device profile from before.
+    const returnedToken = consumeAuthRedirect();
+    if (returnedToken) {
+      onGoogleLogin(returnedToken);
+      return;
+    }
+
     try { member = JSON.parse(localStorage.getItem(PROFILE_KEY)); } catch (e) { member = null; }
     let unlockedThisSession = false;
     try { unlockedThisSession = sessionStorage.getItem(UNLOCKED_KEY) === '1'; } catch (e) {}
@@ -463,6 +511,7 @@
   document.getElementById('forgotPinBtn').addEventListener('click', forgotPin);
   document.getElementById('signOutBtn').addEventListener('click', signOut);
   document.getElementById('checkinBtn').addEventListener('click', checkInWithPin);
+  document.getElementById('googleSignInBtn').addEventListener('click', startGoogleSignIn);
   document.getElementById('dismissBannerBtn').addEventListener('click', () => {
     bannerDismissed = true;
     document.getElementById('nearbyBanner').style.display = 'none';
