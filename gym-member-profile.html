@@ -76,6 +76,11 @@
   .checkin-status { font-size: 13px; margin-top: 10px; text-align: center; min-height: 18px; }
   .checkin-status.ok { color: #4ade80; }
   .checkin-status.bad { color: #ff6b6b; }
+  .nearby-banner {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    background: rgba(232,89,12,0.15); border: 1px solid var(--accent); color: var(--text);
+    border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; font-size: 13px;
+  }
 </style>
 </head>
 <body>
@@ -127,6 +132,10 @@
 
     <div class="panel">
       <h2>Check in</h2>
+      <div id="nearbyBanner" class="nearby-banner" style="display:none;">
+        <span>You're at the gym — ready to check in?</span>
+        <button type="button" class="link-btn" id="dismissBannerBtn" style="margin:0; display:inline;">Dismiss</button>
+      </div>
       <a href="index.html" class="scanner-link">Open Scanner</a>
       <div class="checkin-row">
         <input id="checkinPinInput" class="pin-input" type="tel" inputmode="numeric" maxlength="4" placeholder="PIN" autocomplete="off">
@@ -169,6 +178,8 @@
 
   let member = null;       // { name, gymId, gymName, memberId } — the remembered device identity
   let pendingLogin = null; // { idToken, profile } — held only during the sign-in → set-PIN handoff
+  let bannerDismissed = false; // per-visit only — resets if the page is reloaded
+  let hasCheckedInThisLoad = false; // stop nagging once they've actually checked in
 
   function showScreen(id) {
     ['signinScreen', 'pinSetupScreen', 'unlockScreen', 'profile'].forEach(s => {
@@ -335,6 +346,7 @@
       const data = await jsonpRequest(APPS_SCRIPT_URL, { mode: 'profile', id: member.memberId, gymId: member.gymId });
       if (data.error || !data.member) throw new Error('Profile not found');
       render(data);
+      checkIfNearGym(); // quietly checks location; does nothing if permission isn't already granted
     } catch (err) {
       document.getElementById('loading').style.display = 'none';
       const e = document.getElementById('err');
@@ -377,6 +389,25 @@
     ).join('') : '<tr><td style="color:var(--muted);">No visits recorded yet</td></tr>';
   }
 
+  // Quietly checks whether the device is near the gym, and shows a banner if so.
+  // Uses getCurrentPosition with no special flag, so on a device that hasn't
+  // granted location yet, this simply fails silently — the member still has the
+  // normal Check In button below, nothing is broken either way.
+  async function checkIfNearGym() {
+    if (bannerDismissed || hasCheckedInThisLoad) return;
+    try {
+      const loc = await getLocation();
+      const result = await jsonpRequest(APPS_SCRIPT_URL, {
+        mode: 'checkProximity', gymId: member.gymId, lat: loc.lat, lng: loc.lng
+      });
+      if (result.withinRange && !bannerDismissed && !hasCheckedInThisLoad) {
+        document.getElementById('nearbyBanner').style.display = 'flex';
+      }
+    } catch (err) {
+      // No permission yet, or location unavailable — say nothing, this is a quiet enhancement only.
+    }
+  }
+
   async function checkInWithPin() {
     const statusEl = document.getElementById('checkinStatus');
     const pin = document.getElementById('checkinPinInput').value.trim();
@@ -401,6 +432,8 @@
       statusEl.textContent = 'Checked in — see you on the mat!';
       statusEl.className = 'checkin-status ok';
       document.getElementById('checkinPinInput').value = '';
+      hasCheckedInThisLoad = true;
+      document.getElementById('nearbyBanner').style.display = 'none';
     } catch (err) {
       statusEl.textContent = err.message;
       statusEl.className = 'checkin-status bad';
@@ -430,6 +463,22 @@
   document.getElementById('forgotPinBtn').addEventListener('click', forgotPin);
   document.getElementById('signOutBtn').addEventListener('click', signOut);
   document.getElementById('checkinBtn').addEventListener('click', checkInWithPin);
+  document.getElementById('dismissBannerBtn').addEventListener('click', () => {
+    bannerDismissed = true;
+    document.getElementById('nearbyBanner').style.display = 'none';
+  });
+
+  // Re-check proximity if the member leaves the tab in the background and comes
+  // back later (e.g. they had it open before leaving home, and it's now open again
+  // once they've actually arrived), and every couple of minutes while it stays open.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && member && document.getElementById('profile').style.display !== 'none') {
+      checkIfNearGym();
+    }
+  });
+  setInterval(() => {
+    if (member && document.getElementById('profile').style.display !== 'none') checkIfNearGym();
+  }, 120000);
 
   init();
 })();
