@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Gym App</title>
+
+<link rel="manifest" href="./login-manifest.json">
+<meta name="theme-color" content="#161616">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Gym App">
+<link rel="apple-touch-icon" href="./member-icon-180.png">
+<link rel="icon" href="./member-icon-192.png">
+
+<style>
+  :root {
+    --bg: #161616; --card: #232323; --card2: #2b2b2b;
+    --accent: #E8590C; --text: #F5F5F5; --muted: #9C9C9C; --border: #3A3A3A;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 100%;
+  }
+  body { padding: env(safe-area-inset-top, 20px) 16px calc(env(safe-area-inset-bottom, 20px) + 16px); }
+
+  .screen { max-width: 420px; margin: 70px auto; text-align: center; display: none; }
+  .screen.active { display: block; }
+  .screen h1 { font-size: 20px; margin-bottom: 8px; }
+  .screen p { color: var(--muted); font-size: 14px; margin-bottom: 22px; }
+
+  .pin-input {
+    width: 100%; padding: 16px; border-radius: 12px; margin-bottom: 10px;
+    border: 1px solid var(--border); background: var(--card); color: var(--text);
+    font-size: 26px; letter-spacing: 10px; text-align: center; font-family: inherit;
+  }
+  .btn {
+    padding: 14px 28px; border-radius: 12px; border: none; width: 100%;
+    background: var(--accent); color: #161616; font-weight: 700; font-size: 15px; cursor: pointer;
+    font-family: inherit;
+  }
+  .link-btn {
+    all: unset; cursor: pointer; color: var(--muted); font-size: 13px; text-decoration: underline;
+    display: block; margin-top: 14px; text-align: center;
+  }
+  .screen-error { color: #ff6b6b; font-size: 13px; margin-top: 14px; display: none; }
+  #loadingScreen { color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+
+<div id="loadingScreen" class="screen active">
+  <p>Loading…</p>
+</div>
+
+<!-- Not signed in on this device yet -->
+<div id="signinScreen" class="screen">
+  <h1>Gym App</h1>
+  <p>Sign in with the Google account your gym has on file for you.</p>
+  <button type="button" class="btn" id="googleSignInBtn">Sign in with Google</button>
+  <div class="screen-error" id="signinError"></div>
+</div>
+
+<!-- Choose/replace a PIN, shown right after a fresh Google sign-in -->
+<div id="pinSetupScreen" class="screen">
+  <h1>Set your PIN</h1>
+  <p>This 4-digit PIN unlocks the app quickly next time, with no need to sign in with Google again on this device.</p>
+  <input id="newPinInput" class="pin-input" type="tel" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="off">
+  <button class="btn" id="savePinBtn">Save PIN</button>
+  <button class="link-btn" id="skipPinBtn" style="display:none;">Keep my current PIN</button>
+  <div class="screen-error" id="pinSetupError"></div>
+</div>
+
+<!-- Device already known, just needs the PIN to unlock -->
+<div id="unlockScreen" class="screen">
+  <h1 id="unlockGreeting">Welcome back</h1>
+  <p>Enter your PIN to continue.</p>
+  <input id="unlockPinInput" class="pin-input" type="tel" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="off">
+  <button class="btn" id="unlockBtn">Unlock</button>
+  <button class="link-btn" id="forgotPinBtn">Forgot your PIN? Sign in with Google</button>
+  <div class="screen-error" id="unlockError"></div>
+</div>
+
+<script>
+(function() {
+  const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwE1ET6tuq1FyWYum6vPduf-6ZTq85Z36cU88dv2RiS0J60ZoTpgYHu_Hg-eL4Tg_KjrQ/exec";
+  const GOOGLE_CLIENT_ID = "521793405590-qdr041egps4kkc41jda773qoi28sql8q.apps.googleusercontent.com";
+
+  // Shared storage keys — identical across login.html, the dashboard, and the
+  // member profile page, since they're all on the same origin and need to agree
+  // on who's signed in and whether this session is still unlocked.
+  const IDENTITY_KEY = 'gymAppIdentity';   // localStorage — remembered permanently on this device
+  const SESSION_KEY = 'gymAppSessionKey';  // sessionStorage — a short-lived proof of this unlock
+  const NONCE_KEY = 'gymAppNonce';         // sessionStorage — one-time value for the Google redirect only
+
+  const DESTINATIONS = { Coach: 'gym-attendance-dashboard.html', Member: 'gym-member-profile.html' };
+
+  let pendingLogin = null; // { idToken, profile } — held only during the sign-in → set-PIN handoff
+
+  function showScreen(id) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === id));
+  }
+
+  function jsonpRequest(baseUrl, params) {
+    return new Promise((resolve, reject) => {
+      const cbName = 'jsonp_cb_' + Math.random().toString(36).slice(2);
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error('Request timed out — check your connection and try again'));
+      }, 20000);
+
+      function cleanup() {
+        clearTimeout(timeout);
+        delete window[cbName];
+        if (script.parentNode) script.parentNode.removeChild(script);
+      }
+
+      window[cbName] = (data) => { cleanup(); resolve(data); };
+
+      const qs = Object.keys(params).map(k => k + '=' + encodeURIComponent(params[k])).join('&');
+      const script = document.createElement('script');
+      script.src = baseUrl + (baseUrl.includes('?') ? '&' : '?') + qs + '&callback=' + cbName;
+      script.onerror = () => { cleanup(); reject(new Error('Could not reach the script URL')); };
+      document.body.appendChild(script);
+    });
+  }
+
+  // ---------- Google sign-in (redirect flow — see dashboard/profile files for the full explanation) ----------
+
+  function randomString() {
+    const arr = new Uint8Array(16);
+    (window.crypto || window.msCrypto).getRandomValues(arr);
+    return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  function decodeJwtPayload(token) {
+    const payload = token.split('.')[1];
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(decodeURIComponent(atob(base64).split('').map(c =>
+      '%' + c.charCodeAt(0).toString(16).padStart(2, '0')
+    ).join('')));
+  }
+
+  function startGoogleSignIn() {
+    const nonce = randomString();
+    try { sessionStorage.setItem(NONCE_KEY, nonce); } catch (e) {}
+    const redirectUri = window.location.origin + window.location.pathname;
+    const params = {
+      client_id: GOOGLE_CLIENT_ID,
+      redirect_uri: redirectUri,
+      response_type: 'id_token',
+      scope: 'openid email profile',
+      nonce: nonce
+    };
+    const qs = Object.keys(params).map(k => k + '=' + encodeURIComponent(params[k])).join('&');
+    window.location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + qs;
+  }
+
+  function consumeAuthRedirect() {
+    if (!window.location.hash || window.location.hash.indexOf('id_token=') === -1) return null;
+
+    const hashParams = new URLSearchParams(window.location.hash.slice(1));
+    const idToken = hashParams.get('id_token');
+    const returnedNonce = (function() { try { return decodeJwtPayload(idToken).nonce; } catch (e) { return null; } })();
+
+    let expectedNonce = null;
+    try { expectedNonce = sessionStorage.getItem(NONCE_KEY); sessionStorage.removeItem(NONCE_KEY); } catch (e) {}
+
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+
+    if (!idToken || !returnedNonce || returnedNonce !== expectedNonce) return null;
+    return idToken;
+  }
+
+  // ---------- Sign-in result → PIN setup ----------
+
+  async function onGoogleLogin(idToken) {
+    const errBox = document.getElementById('signinError');
+    showScreen('signinScreen');
+    errBox.style.display = 'none';
+    try {
+      const result = await jsonpRequest(APPS_SCRIPT_URL, { mode: 'verifyLogin', token: idToken });
+      if (!result.success) {
+        errBox.textContent = result.message || 'Could not sign you in.';
+        errBox.style.display = 'block';
+        return;
+      }
+      if (!DESTINATIONS[result.profile.role]) {
+        errBox.textContent = 'This account is not set up for coach or member access.';
+        errBox.style.display = 'block';
+        return;
+      }
+      pendingLogin = { idToken: idToken, profile: result.profile };
+      const skipBtn = document.getElementById('skipPinBtn');
+      skipBtn.style.display = result.profile.hasPin ? 'block' : 'none';
+      document.getElementById('newPinInput').value = '';
+      document.getElementById('pinSetupError').style.display = 'none';
+      showScreen('pinSetupScreen');
+    } catch (err) {
+      errBox.textContent = 'Could not reach the server: ' + err.message;
+      errBox.style.display = 'block';
+    }
+  }
+
+  function rememberDeviceAndGo(profile, sessionKey) {
+    const identity = { role: profile.role, gymId: profile.gymId, gymName: profile.gymName, name: profile.name };
+    if (profile.role === 'Member') identity.memberId = profile.memberId;
+    if (profile.role === 'Coach') identity.email = profile.email;
+
+    try {
+      localStorage.setItem(IDENTITY_KEY, JSON.stringify(identity));
+      sessionStorage.setItem(SESSION_KEY, sessionKey);
+    } catch (e) {}
+
+    window.location.href = DESTINATIONS[profile.role];
+  }
+
+  async function savePin() {
+    const errBox = document.getElementById('pinSetupError');
+    errBox.style.display = 'none';
+    const pin = document.getElementById('newPinInput').value.trim();
+    if (!/^[0-9]{4}$/.test(pin)) {
+      errBox.textContent = 'Enter exactly 4 digits.';
+      errBox.style.display = 'block';
+      return;
+    }
+    try {
+      const result = await jsonpRequest(APPS_SCRIPT_URL, { mode: 'setPin', token: pendingLogin.idToken, pin: pin });
+      if (!result.success) {
+        errBox.textContent = result.message || 'Could not save PIN.';
+        errBox.style.display = 'block';
+        return;
+      }
+      // Setting a PIN doesn't itself return a session key, so unlock immediately
+      // afterward with the PIN just chosen — same request a returning device makes.
+      await unlockWithGivenPin(pendingLogin.profile, pin);
+    } catch (err) {
+      errBox.textContent = 'Could not reach the server: ' + err.message;
+      errBox.style.display = 'block';
+    }
+  }
+
+  async function skipPin() {
+    const errBox = document.getElementById('pinSetupError');
+    errBox.style.display = 'none';
+    // They already have a PIN from before — we don't know it, so send them to the
+    // ordinary unlock screen to enter it, same as any other returning device.
+    const identity = { role: pendingLogin.profile.role, gymId: pendingLogin.profile.gymId, gymName: pendingLogin.profile.gymName, name: pendingLogin.profile.name };
+    if (pendingLogin.profile.role === 'Member') identity.memberId = pendingLogin.profile.memberId;
+    if (pendingLogin.profile.role === 'Coach') identity.email = pendingLogin.profile.email;
+    try { localStorage.setItem(IDENTITY_KEY, JSON.stringify(identity)); } catch (e) {}
+    pendingLogin = null;
+    showUnlockScreen(identity);
+  }
+
+  // ---------- PIN verification (used both right after setting a PIN, and on every return visit) ----------
+
+  async function unlockWithGivenPin(identity, pin) {
+    const params = { mode: 'verifyPin', role: identity.role, pin: pin };
+    if (identity.role === 'Member') { params.gymId = identity.gymId; params.memberId = identity.memberId; }
+    if (identity.role === 'Coach') { params.email = identity.email; }
+    return jsonpRequest(APPS_SCRIPT_URL, params);
+  }
+
+  function showUnlockScreen(identity) {
+    document.getElementById('unlockGreeting').textContent = 'Welcome back' + (identity.name ? ', ' + identity.name.split(' ')[0] : '');
+    document.getElementById('unlockPinInput').value = '';
+    document.getElementById('unlockError').style.display = 'none';
+    showScreen('unlockScreen');
+  }
+
+  async function unlockWithPin() {
+    const errBox = document.getElementById('unlockError');
+    errBox.style.display = 'none';
+    const pin = document.getElementById('unlockPinInput').value.trim();
+    if (!/^[0-9]{4}$/.test(pin)) {
+      errBox.textContent = 'Enter exactly 4 digits.';
+      errBox.style.display = 'block';
+      return;
+    }
+    let identity = null;
+    try { identity = JSON.parse(localStorage.getItem(IDENTITY_KEY)); } catch (e) {}
+    if (!identity) { showScreen('signinScreen'); return; }
+
+    try {
+      const result = await unlockWithGivenPin(identity, pin);
+      if (!result.success) {
+        errBox.textContent = result.message || 'Incorrect PIN.';
+        errBox.style.display = 'block';
+        return;
+      }
+      rememberDeviceAndGo(result.profile, result.sessionKey);
+    } catch (err) {
+      errBox.textContent = 'Could not reach the server: ' + err.message;
+      errBox.style.display = 'block';
+    }
+  }
+
+  function forgotPin() {
+    document.getElementById('signinError').style.display = 'none';
+    showScreen('signinScreen');
+  }
+
+  // ---------- Startup ----------
+
+  async function init() {
+    const returnedToken = consumeAuthRedirect();
+    if (returnedToken) {
+      onGoogleLogin(returnedToken);
+      return;
+    }
+
+    let identity = null;
+    try { identity = JSON.parse(localStorage.getItem(IDENTITY_KEY)); } catch (e) { identity = null; }
+
+    if (identity) {
+      showUnlockScreen(identity);
+    } else {
+      showScreen('signinScreen');
+    }
+  }
+
+  document.getElementById('googleSignInBtn').addEventListener('click', startGoogleSignIn);
+  document.getElementById('savePinBtn').addEventListener('click', savePin);
+  document.getElementById('skipPinBtn').addEventListener('click', skipPin);
+  document.getElementById('unlockBtn').addEventListener('click', unlockWithPin);
+  document.getElementById('forgotPinBtn').addEventListener('click', forgotPin);
+
+  init();
+})();
+</script>
+
+</body>
+</html>

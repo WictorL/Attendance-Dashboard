@@ -5,16 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Gym Attendance</title>
 
-<!-- Lets this page be "added to home screen" on iPhone/iPad as a standalone app,
-     with its own icon and no Safari address bar. -->
-<link rel="manifest" href="./dashboard-manifest.json">
-<meta name="theme-color" content="#14171C">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Dashboard">
-<link rel="apple-touch-icon" href="./dash-icon-180.png">
-<link rel="icon" href="./dash-icon-192.png">
-
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 
@@ -32,15 +22,7 @@
   body { padding: env(safe-area-inset-top, 20px) 16px calc(env(safe-area-inset-bottom, 20px) + 16px); }
   h1, h2 { font-family: 'Oswald', sans-serif; }
 
-  #setup { max-width: 400px; margin: 70px auto; text-align: center; }
-  #setup h1 { font-size: 22px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
-  #setup p { color: var(--muted); font-size: 14px; margin-bottom: 20px; }
-  #setup button {
-    padding: 14px 28px; border-radius: 12px; border: none; width: 100%;
-    background: var(--accent); color: #14171C; font-weight: 700; font-size: 15px; cursor: pointer;
-    font-family: 'Oswald', sans-serif; text-transform: uppercase; letter-spacing: 0.5px;
-  }
-  #setup-error { color: #ff6b6b; font-size: 13px; margin-top: 16px; display: none; }
+  #redirecting { max-width: 400px; margin: 70px auto; text-align: center; color: var(--muted); font-size: 14px; }
 
   header { text-align: center; margin-bottom: 24px; }
   header h1 {
@@ -180,12 +162,7 @@
 </head>
 <body>
 
-<div id="setup">
-  <h1>Attendance Dashboard</h1>
-  <p>Sign in with your gym account to continue.</p>
-  <button type="button" id="googleSignInBtn">Sign in with Google</button>
-  <div id="setup-error"></div>
-</div>
+<div id="redirecting">Loading…</div>
 
 <div id="dash" style="display:none;">
   <header>
@@ -281,77 +258,22 @@
 <script>
 (function() {
   const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwE1ET6tuq1FyWYum6vPduf-6ZTq85Z36cU88dv2RiS0J60ZoTpgYHu_Hg-eL4Tg_KjrQ/exec";
-  const GOOGLE_CLIENT_ID = "521793405590-qdr041egps4kkc41jda773qoi28sql8q.apps.googleusercontent.com";
-  const STORAGE_KEY = 'gymDashboardUrl';
-  const GYM_KEY = 'gymDashboardGym';
-  const PROFILE_KEY = 'gymDashboardProfile'; // sessionStorage only — cleared when the tab/browser closes
-  const TOKEN_KEY = 'gymDashboardToken';     // the raw Google sign-in token, kept alongside the profile
-  const NONCE_KEY = 'gymDashboardNonce';     // one-time value used to confirm a returned token is genuinely ours
 
-  let baseUrl = APPS_SCRIPT_URL, gymName = null, authToken = null;
-  let expandedBelt = null; // which belt row is currently drilled into, if any
-  let expandedKpi = null;  // which KPI card ('today' | 'week' | 'members' | 'total') is expanded, if any
-  let calYear = null, calMonth = null, calDaysMap = {}; // currently displayed calendar month
-  let expandedDay = null;      // 'yyyy-MM-dd' currently drilled into, if any
-  let calViewMode = 'attended'; // 'attended' | 'absent' — persists as you click between days
-  let allMembers = []; // full roster for this gym, used by the member-lookup search
+  // Shared with login.html and gym-member-profile.html — same origin, same keys.
+  const IDENTITY_KEY = 'gymAppIdentity';
+  const SESSION_KEY = 'gymAppSessionKey';
 
-  // ---------- Google sign-in (redirect flow — see note below) ----------
-  //
-  // Safari blocks Google's normal popup-based sign-in button outright (confirmed
-  // in Google's own browser-support docs), so instead of a popup we send the whole
-  // page to Google's sign-in screen and back — a plain page navigation, which works
-  // identically in every browser since there's no popup or embedded frame involved.
-  // Google returns the result after a "#" in the URL, which browsers never send to
-  // any server, so no extra backend piece is needed to receive it.
+  let gymName = null, sessionKey = null;
+  let expandedBelt = null;
+  let expandedKpi = null;
+  let calYear = null, calMonth = null, calDaysMap = {};
+  let expandedDay = null;
+  let calViewMode = 'attended';
+  let allMembers = [];
 
-  function randomString() {
-    const arr = new Uint8Array(16);
-    (window.crypto || window.msCrypto).getRandomValues(arr);
-    return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
-  }
-
-  function decodeJwtPayload(token) {
-    const payload = token.split('.')[1];
-    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
-    return JSON.parse(decodeURIComponent(atob(base64).split('').map(c =>
-      '%' + c.charCodeAt(0).toString(16).padStart(2, '0')
-    ).join('')));
-  }
-
-  function startGoogleSignIn() {
-    const nonce = randomString();
-    try { sessionStorage.setItem(NONCE_KEY, nonce); } catch (e) {}
-    const redirectUri = window.location.origin + window.location.pathname;
-    const params = {
-      client_id: GOOGLE_CLIENT_ID,
-      redirect_uri: redirectUri,
-      response_type: 'id_token',
-      scope: 'openid email profile',
-      nonce: nonce
-    };
-    const qs = Object.keys(params).map(k => k + '=' + encodeURIComponent(params[k])).join('&');
-    window.location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + qs;
-  }
-
-  // Checks whether this page load IS Google returning us from sign-in (i.e. the URL
-  // has a token in it). Returns the token if so and valid, otherwise null — callers
-  // treat null as "this is a normal page load, not a sign-in return."
-  function consumeAuthRedirect() {
-    if (!window.location.hash || window.location.hash.indexOf('id_token=') === -1) return null;
-
-    const hashParams = new URLSearchParams(window.location.hash.slice(1));
-    const idToken = hashParams.get('id_token');
-    const returnedNonce = (function() { try { return decodeJwtPayload(idToken).nonce; } catch (e) { return null; } })();
-
-    let expectedNonce = null;
-    try { expectedNonce = sessionStorage.getItem(NONCE_KEY); sessionStorage.removeItem(NONCE_KEY); } catch (e) {}
-
-    // Clean the token out of the visible URL either way — it should never sit there.
-    history.replaceState(null, '', window.location.pathname + window.location.search);
-
-    if (!idToken || !returnedNonce || returnedNonce !== expectedNonce) return null;
-    return idToken;
+  function goToLogin() {
+    try { localStorage.removeItem(IDENTITY_KEY); sessionStorage.removeItem(SESSION_KEY); } catch (e) {}
+    window.location.href = 'login.html';
   }
 
   async function loadData() {
@@ -359,14 +281,17 @@
     document.getElementById('err').style.display = 'none';
     document.getElementById('content').style.display = 'none';
 
-    // Both requests start at the same time, instead of one waiting for the other
-    // to finish first — this roughly halves the wait compared to running them in sequence.
-    const dataPromise = jsonpRequest(baseUrl, { mode: 'data', gymId: gymName, token: authToken });
-    const membersPromise = jsonpRequest(baseUrl, { mode: 'members', gymId: gymName, token: authToken });
+    const dataPromise = jsonpRequest(APPS_SCRIPT_URL, { mode: 'data', gymId: gymName, sessionKey: sessionKey });
+    const membersPromise = jsonpRequest(APPS_SCRIPT_URL, { mode: 'members', gymId: gymName, sessionKey: sessionKey });
 
     try {
       const data = await dataPromise;
-      if (data.error) throw new Error(data.error);
+      if (data.error) {
+        // Any error from a session-protected endpoint most likely means the
+        // session has expired — the quickest fix is just unlocking again.
+        goToLogin();
+        return;
+      }
       render(data);
       document.getElementById('lastUpdated').textContent = 'Updated ' + new Date().toLocaleTimeString();
     } catch (err) {
@@ -419,7 +344,7 @@
     return BELT_COLORS[key] || BELT_COLORS.unspecified;
   }
 
-  let lastData = null; // keep the last successful payload so re-render (on tap) needs no re-fetch
+  let lastData = null;
 
   function render(data) {
     lastData = data;
@@ -623,7 +548,7 @@
     if (newMonth < 0) { newMonth = 11; newYear--; }
     if (newMonth > 11) { newMonth = 0; newYear++; }
     try {
-      const result = await jsonpRequest(baseUrl, { mode: 'calendar', gymId: gymName, year: newYear, month: newMonth, token: authToken });
+      const result = await jsonpRequest(APPS_SCRIPT_URL, { mode: 'calendar', gymId: gymName, year: newYear, month: newMonth, sessionKey: sessionKey });
       if (result.error) throw new Error(result.error);
       calYear = result.year; calMonth = result.month; calDaysMap = result.days || {};
       expandedDay = null;
@@ -681,7 +606,7 @@
     detailBox.style.display = 'block';
     detailBox.innerHTML = '<div style="color:var(--muted); font-size:13px;">Loading…</div>';
     try {
-      const result = await jsonpRequest(baseUrl, { mode: 'profile', id: id, gymId: gymName });
+      const result = await jsonpRequest(APPS_SCRIPT_URL, { mode: 'profile', id: id, gymId: gymName });
       if (result.error) throw new Error(result.error);
       renderMemberDetail(result);
     } catch (err) {
@@ -724,71 +649,27 @@
     });
   }
 
-  async function onGoogleLogin(idToken) {
-    const errBox = document.getElementById('setup-error');
-    errBox.style.display = 'none';
-    try {
-      const result = await jsonpRequest(APPS_SCRIPT_URL, { mode: 'verifyLogin', token: idToken });
-      if (!result.success) {
-        errBox.textContent = result.message || 'Could not sign you in.';
-        errBox.style.display = 'block';
-        return;
-      }
-      if (result.profile.role !== 'Coach') {
-        errBox.textContent = 'This dashboard is for coaches only.';
-        errBox.style.display = 'block';
-        return;
-      }
-      try {
-        sessionStorage.setItem(PROFILE_KEY, JSON.stringify(result.profile));
-        sessionStorage.setItem(TOKEN_KEY, idToken);
-      } catch (e) {}
-      authToken = idToken;
-      startDashboard(result.profile);
-    } catch (err) {
-      errBox.textContent = 'Could not reach the server: ' + err.message;
-      errBox.style.display = 'block';
-    }
-  }
-
-  function startDashboard(profile) {
-    gymName = profile.gymId;
-    document.getElementById('setup').style.display = 'none';
-    document.getElementById('dash').style.display = 'block';
-    document.getElementById('gymTitle').textContent = profile.gymName || gymName;
-    loadData();
-  }
-
-  function signOut() {
-    try { sessionStorage.removeItem(PROFILE_KEY); sessionStorage.removeItem(TOKEN_KEY); } catch (e) {}
-    authToken = null;
-    gymName = null;
-    document.getElementById('dash').style.display = 'none';
-    document.getElementById('setup-error').style.display = 'none';
-    document.getElementById('setup').style.display = 'block';
-  }
-
   function init() {
-    // If this load IS Google returning us from sign-in, handle that first —
-    // it takes priority over any cached profile from before.
-    const returnedToken = consumeAuthRedirect();
-    if (returnedToken) {
-      onGoogleLogin(returnedToken);
+    // This page trusts login.html entirely — it never signs anyone in itself.
+    // No remembered identity, wrong role, or no session key for this tab = straight back.
+    let identity = null;
+    try { identity = JSON.parse(localStorage.getItem(IDENTITY_KEY)); } catch (e) { identity = null; }
+    try { sessionKey = sessionStorage.getItem(SESSION_KEY); } catch (e) { sessionKey = null; }
+
+    if (!identity || identity.role !== 'Coach' || !sessionKey) {
+      goToLogin();
       return;
     }
 
-    let cached = null, cachedToken = null;
-    try { cached = JSON.parse(sessionStorage.getItem(PROFILE_KEY)); } catch (e) { cached = null; }
-    try { cachedToken = sessionStorage.getItem(TOKEN_KEY); } catch (e) { cachedToken = null; }
-    if (cached && cached.role === 'Coach' && cachedToken) {
-      authToken = cachedToken;
-      startDashboard(cached);
-    }
+    gymName = identity.gymId;
+    document.getElementById('redirecting').style.display = 'none';
+    document.getElementById('dash').style.display = 'block';
+    document.getElementById('gymTitle').textContent = identity.gymName || gymName;
+    loadData();
   }
 
-  document.getElementById('googleSignInBtn').addEventListener('click', startGoogleSignIn);
   document.getElementById('refreshBtn').addEventListener('click', () => { expandedBelt = null; loadData(); });
-  document.getElementById('signOutBtn').addEventListener('click', signOut);
+  document.getElementById('signOutBtn').addEventListener('click', goToLogin);
   document.getElementById('calPrev').addEventListener('click', () => changeMonth(-1));
   document.getElementById('calNext').addEventListener('click', () => changeMonth(1));
 
@@ -820,11 +701,11 @@
   });
 
   setInterval(() => {
-    if (baseUrl && gymName) loadData();
+    if (gymName && sessionKey) loadData();
   }, 15 * 60 * 1000);
 
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && baseUrl && gymName) loadData();
+    if (document.visibilityState === 'visible' && gymName && sessionKey) loadData();
   });
 
   init();
