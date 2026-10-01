@@ -233,7 +233,7 @@
         errBox.style.display = 'block';
         return;
       }
-            // Setting a PIN doesn't itself return a session key, so unlock immediately
+      // Setting a PIN doesn't itself return a session key, so unlock immediately
       // afterward with the PIN just chosen — same request a returning device makes.
       const unlockResult = await unlockWithGivenPin(pendingLogin.profile, pin);
       if (!unlockResult.success) {
@@ -242,6 +242,10 @@
         return;
       }
       rememberDeviceAndGo(unlockResult.profile, unlockResult.sessionKey);
+    } catch (err) {
+      errBox.textContent = 'Could not reach the server: ' + err.message;
+      errBox.style.display = 'block';
+    }
   }
 
   async function skipPin() {
