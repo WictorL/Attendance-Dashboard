@@ -126,12 +126,21 @@
   const SESSION_KEY = 'gymAppSessionKey';
 
   let member = null; // { name, gymId, gymName, memberId } — from the remembered device identity
+  let sessionKey = null; // proof of this unlock, sent with every request for private data
   let visits = [];            // this member's visits, newest first
   let checkinState = null;    // 'locating' | 'away' | 'nolocation' | 'notsetup' | 'error' | 'ready' | 'done'
   let locationCheckRunning = false;
 
-  function goToLogin() {
+  // Sign out: forget this person on this device completely.
+  function signOut() {
     try { localStorage.removeItem(IDENTITY_KEY); sessionStorage.removeItem(SESSION_KEY); } catch (e) {}
+    window.location.href = 'login.html';
+  }
+
+  // Session ended (expired, or this tab has none): keep who this device belongs to,
+  // so they only have to enter their PIN again, not sign in from scratch.
+  function backToUnlock() {
+    try { sessionStorage.removeItem(SESSION_KEY); } catch (e) {}
     window.location.href = 'login.html';
   }
 
@@ -185,7 +194,8 @@
     document.getElementById('err').style.display = 'none';
     document.getElementById('content').style.display = 'none';
     try {
-      const data = await jsonpRequest(APPS_SCRIPT_URL, { mode: 'profile', id: member.memberId, gymId: member.gymId });
+      const data = await jsonpRequest(APPS_SCRIPT_URL, { mode: 'profile', sessionKey: sessionKey });
+      if (data.sessionExpired) { backToUnlock(); return; }
       if (data.error || !data.member) throw new Error('Profile not found');
       render(data);
       const today = todaysVisit();
@@ -370,8 +380,14 @@
     let identity = null;
     try { identity = JSON.parse(localStorage.getItem(IDENTITY_KEY)); } catch (e) { identity = null; }
 
+    try { sessionKey = sessionStorage.getItem(SESSION_KEY); } catch (e) { sessionKey = null; }
+
     if (!identity || identity.role !== 'Member') {
-      goToLogin();
+      signOut();
+      return;
+    }
+    if (!sessionKey) {
+      backToUnlock();
       return;
     }
 
@@ -380,7 +396,7 @@
   }
 
   document.getElementById('checkinBtn').addEventListener('click', checkInWithPin);
-  document.getElementById('signOutBtn').addEventListener('click', goToLogin);
+  document.getElementById('signOutBtn').addEventListener('click', signOut);
   document.getElementById('recheckBtn').addEventListener('click', () => {
     document.getElementById('checkinStatus').textContent = '';
     checkIfNearGym(true);

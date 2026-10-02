@@ -270,8 +270,16 @@
   let calViewMode = 'attended';
   let allMembers = [];
 
-  function goToLogin() {
+  // Sign out: forget this person on this device completely.
+  function signOut() {
     try { localStorage.removeItem(IDENTITY_KEY); sessionStorage.removeItem(SESSION_KEY); } catch (e) {}
+    window.location.href = 'login.html';
+  }
+
+  // Session ended (expired, or this tab has none): keep who this device belongs to,
+  // so they only have to enter their PIN again, not sign in from scratch.
+  function backToUnlock() {
+    try { sessionStorage.removeItem(SESSION_KEY); } catch (e) {}
     window.location.href = 'login.html';
   }
 
@@ -288,7 +296,7 @@
       if (data.error) {
         // Any error from a session-protected endpoint most likely means the
         // session has expired — the quickest fix is just unlocking again.
-        goToLogin();
+        backToUnlock();
         return;
       }
       render(data);
@@ -605,7 +613,8 @@
     detailBox.style.display = 'block';
     detailBox.innerHTML = '<div style="color:var(--muted); font-size:13px;">Loading…</div>';
     try {
-      const result = await jsonpRequest(APPS_SCRIPT_URL, { mode: 'profile', id: id, gymId: gymName });
+      const result = await jsonpRequest(APPS_SCRIPT_URL, { mode: 'profile', id: id, sessionKey: sessionKey });
+      if (result.sessionExpired) { backToUnlock(); return; }
       if (result.error) throw new Error(result.error);
       renderMemberDetail(result);
     } catch (err) {
@@ -655,8 +664,12 @@
     try { identity = JSON.parse(localStorage.getItem(IDENTITY_KEY)); } catch (e) { identity = null; }
     try { sessionKey = sessionStorage.getItem(SESSION_KEY); } catch (e) { sessionKey = null; }
 
-    if (!identity || identity.role !== 'Coach' || !sessionKey) {
-      goToLogin();
+    if (!identity || identity.role !== 'Coach') {
+      signOut();
+      return;
+    }
+    if (!sessionKey) {
+      backToUnlock();
       return;
     }
 
@@ -668,7 +681,7 @@
   }
 
   document.getElementById('refreshBtn').addEventListener('click', () => { expandedBelt = null; loadData(); });
-  document.getElementById('signOutBtn').addEventListener('click', goToLogin);
+  document.getElementById('signOutBtn').addEventListener('click', signOut);
   document.getElementById('calPrev').addEventListener('click', () => changeMonth(-1));
   document.getElementById('calNext').addEventListener('click', () => changeMonth(1));
 
