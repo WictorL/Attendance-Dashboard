@@ -45,6 +45,19 @@
     all: unset; cursor: pointer; color: var(--muted); font-size: 13px; text-decoration: underline;
     display: block; margin-top: 14px; text-align: center;
   }
+  .btn:disabled { opacity: 0.6; cursor: default; }
+  .btn-secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
+  .text-input {
+    width: 100%; padding: 14px 16px; border-radius: 12px; margin-bottom: 10px;
+    border: 1px solid var(--border); background: var(--card); color: var(--text);
+    font-size: 16px; font-family: inherit;
+  }
+  .text-input:focus, .pin-input:focus { outline: none; border-color: var(--accent); }
+  .divider { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; margin: 22px 0; }
+  .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+  .link-btn:disabled { cursor: default; text-decoration: none; opacity: 0.7; }
+  .hint { font-size: 12px !important; margin-top: 22px !important; }
+  .screen-note { color: #69db7c; font-size: 13px; margin-top: 14px; display: none; }
   .screen-error { color: #ff6b6b; font-size: 13px; margin-top: 14px; display: none; }
   #loadingScreen { color: var(--muted); font-size: 14px; }
 </style>
@@ -52,21 +65,39 @@
 <body>
 
 <div id="loadingScreen" class="screen active">
-  <p>Loading…</p>
+  <p id="loadingText">Loading…</p>
 </div>
 
 <!-- Not signed in on this device yet -->
 <div id="signinScreen" class="screen">
   <h1>Gym App</h1>
-  <p>Sign in with the Google account your gym has on file for you.</p>
-  <button type="button" class="btn" id="googleSignInBtn">Sign in with Google</button>
+  <p>Sign in with the email your gym has on file for you.</p>
+  <button type="button" class="btn" id="googleSignInBtn">Continue with Google</button>
+  <div class="divider">or</div>
+  <input id="emailInput" class="text-input" type="email" inputmode="email" placeholder="you@example.com"
+         autocomplete="email" autocapitalize="off" autocorrect="off" spellcheck="false">
+  <button type="button" class="btn btn-secondary" id="sendCodeBtn">Email me a sign-in code</button>
   <div class="screen-error" id="signinError"></div>
+</div>
+
+<!-- Typing back the 6-digit code that was emailed -->
+<div id="codeScreen" class="screen">
+  <h1>Check your email</h1>
+  <p>If <strong id="codeEmailLabel"></strong> is registered with your gym, we've sent it a 6-digit code. It expires in 10 minutes.</p>
+  <input id="codeInput" class="pin-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6"
+         placeholder="••••••" autocomplete="one-time-code">
+  <button type="button" class="btn" id="verifyCodeBtn">Sign in</button>
+  <button type="button" class="link-btn" id="resendCodeBtn">Send a new code</button>
+  <button type="button" class="link-btn" id="changeEmailBtn">Use a different email</button>
+  <div class="screen-note" id="codeNote"></div>
+  <div class="screen-error" id="codeError"></div>
+  <p class="hint">Not arriving? Check your junk folder, or ask your coach which email they have for you.</p>
 </div>
 
 <!-- Choose/replace a PIN, shown right after a fresh Google sign-in -->
 <div id="pinSetupScreen" class="screen">
   <h1>Set your PIN</h1>
-  <p>This 4-digit PIN unlocks the app quickly next time, with no need to sign in with Google again on this device.</p>
+  <p>This 4-digit PIN unlocks the app quickly next time, so you won't need to sign in again on this device.</p>
   <input id="newPinInput" class="pin-input" type="tel" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="off">
   <button class="btn" id="savePinBtn">Save PIN</button>
   <button class="link-btn" id="skipPinBtn" style="display:none;">Keep my current PIN</button>
@@ -79,7 +110,7 @@
   <p>Enter your PIN to continue.</p>
   <input id="unlockPinInput" class="pin-input" type="tel" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="off">
   <button class="btn" id="unlockBtn">Unlock</button>
-  <button class="link-btn" id="forgotPinBtn">Forgot your PIN? Sign in with Google</button>
+  <button class="link-btn" id="forgotPinBtn">Forgot your PIN? Sign in again</button>
   <div class="screen-error" id="unlockError"></div>
 </div>
 
@@ -94,13 +125,44 @@
   const IDENTITY_KEY = 'gymAppIdentity';   // localStorage — remembered permanently on this device
   const SESSION_KEY = 'gymAppSessionKey';  // sessionStorage — a short-lived proof of this unlock
   const NONCE_KEY = 'gymAppNonce';         // sessionStorage — one-time value for the Google redirect only
+  const LAST_EMAIL_KEY = 'gymAppLastEmail'; // localStorage — pre-fills the email box next time
 
   const DESTINATIONS = { Coach: 'gym-attendance-dashboard.html', Member: 'gym-member-profile.html' };
 
-  let pendingLogin = null; // { idToken, profile } — held only during the sign-in → set-PIN handoff
+  let pendingLogin = null; // { sessionKey, profile } — held only during the sign-in → set-PIN handoff
+  let codeEmail = null;    // the address the current emailed code was sent to
+  let resendTimer = null;
 
   function showScreen(id) {
     document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === id));
+  }
+
+  function showLoading(text) {
+    document.getElementById('loadingText').textContent = text;
+    showScreen('loadingScreen');
+  }
+
+  function showError(id, message) {
+    const el = document.getElementById(id);
+    el.textContent = message;
+    el.style.display = 'block';
+  }
+
+  function hideMessage(id) {
+    document.getElementById(id).style.display = 'none';
+  }
+
+  // Greys a button out and swaps its label while a request is running, so a
+  // double-tap can't fire the same request twice.
+  function setBusy(btn, busy, busyLabel) {
+    if (busy) {
+      btn.dataset.label = btn.textContent;
+      btn.textContent = busyLabel;
+      btn.disabled = true;
+    } else {
+      if (btn.dataset.label) btn.textContent = btn.dataset.label;
+      btn.disabled = false;
+    }
   }
 
   function jsonpRequest(baseUrl, params) {
@@ -177,31 +239,164 @@
   // ---------- Sign-in result → PIN setup ----------
 
   async function onGoogleLogin(idToken) {
-    const errBox = document.getElementById('signinError');
-    showScreen('signinScreen');
-    errBox.style.display = 'none';
+    showLoading('Signing you in…');
     try {
       const result = await jsonpRequest(APPS_SCRIPT_URL, { mode: 'verifyLogin', token: idToken });
       if (!result.success) {
-        errBox.textContent = result.message || 'Could not sign you in.';
-        errBox.style.display = 'block';
+        showSigninScreen();
+        showError('signinError', result.message || 'Could not sign you in.');
         return;
       }
-      if (!DESTINATIONS[result.profile.role]) {
-        errBox.textContent = 'This account is not set up for coach or member access.';
-        errBox.style.display = 'block';
-        return;
-      }
-      pendingLogin = { idToken: idToken, profile: result.profile };
-      const skipBtn = document.getElementById('skipPinBtn');
-      skipBtn.style.display = result.profile.hasPin ? 'block' : 'none';
-      document.getElementById('newPinInput').value = '';
-      document.getElementById('pinSetupError').style.display = 'none';
-      showScreen('pinSetupScreen');
+      afterSignIn(result, 'signinError');
     } catch (err) {
-      errBox.textContent = 'Could not reach the server: ' + err.message;
-      errBox.style.display = 'block';
+      showSigninScreen();
+      showError('signinError', 'Could not reach the server: ' + err.message);
     }
+  }
+
+  // ---------- Email code sign-in ----------
+
+  function isValidEmail(email) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  }
+
+  async function sendCodeFromSigninScreen() {
+    hideMessage('signinError');
+    const email = document.getElementById('emailInput').value.trim().toLowerCase();
+    if (!isValidEmail(email)) {
+      showError('signinError', 'Please enter a valid email address.');
+      return;
+    }
+    const btn = document.getElementById('sendCodeBtn');
+    setBusy(btn, true, 'Sending…');
+    try {
+      const result = await jsonpRequest(APPS_SCRIPT_URL, { mode: 'requestEmailCode', email: email });
+      if (!result.success) {
+        showError('signinError', result.message || 'Could not send a code.');
+        return;
+      }
+      codeEmail = email;
+      try { localStorage.setItem(LAST_EMAIL_KEY, email); } catch (e) {}
+      showCodeScreen();
+      startResendCountdown(60);
+    } catch (err) {
+      showError('signinError', 'Could not reach the server: ' + err.message);
+    } finally {
+      setBusy(btn, false);
+    }
+  }
+
+  function showCodeScreen() {
+    document.getElementById('codeEmailLabel').textContent = codeEmail;
+    document.getElementById('codeInput').value = '';
+    hideMessage('codeError');
+    hideMessage('codeNote');
+    showScreen('codeScreen');
+    document.getElementById('codeInput').focus();
+  }
+
+  // Stops people hammering "resend" — the server enforces the same minute.
+  function startResendCountdown(seconds) {
+    const btn = document.getElementById('resendCodeBtn');
+    clearInterval(resendTimer);
+    let left = seconds;
+    const tick = () => {
+      if (left <= 0) {
+        clearInterval(resendTimer);
+        btn.disabled = false;
+        btn.textContent = 'Send a new code';
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = 'Send a new code (' + left + 's)';
+      left--;
+    };
+    tick();
+    resendTimer = setInterval(tick, 1000);
+  }
+
+  async function resendCode() {
+    hideMessage('codeError');
+    hideMessage('codeNote');
+    const btn = document.getElementById('resendCodeBtn');
+    btn.disabled = true;
+    btn.textContent = 'Sending…';
+    try {
+      const result = await jsonpRequest(APPS_SCRIPT_URL, { mode: 'requestEmailCode', email: codeEmail });
+      if (!result.success) {
+        showError('codeError', result.message || 'Could not send a new code.');
+        startResendCountdown(30);
+        return;
+      }
+      document.getElementById('codeInput').value = '';
+      const note = document.getElementById('codeNote');
+      note.textContent = 'New code sent — any earlier code no longer works.';
+      note.style.display = 'block';
+      startResendCountdown(60);
+    } catch (err) {
+      showError('codeError', 'Could not reach the server: ' + err.message);
+      startResendCountdown(5);
+    }
+  }
+
+  async function verifyCode() {
+    const btn = document.getElementById('verifyCodeBtn');
+    if (btn.disabled) return; // already checking (e.g. auto-submit fired)
+    hideMessage('codeError');
+    hideMessage('codeNote');
+    const input = document.getElementById('codeInput');
+    const code = input.value.replace(/\D/g, '');
+    if (code.length !== 6) {
+      showError('codeError', 'Enter the 6-digit code from the email.');
+      return;
+    }
+    setBusy(btn, true, 'Checking…');
+    try {
+      const result = await jsonpRequest(APPS_SCRIPT_URL, { mode: 'verifyEmailCode', email: codeEmail, code: code });
+      if (!result.success) {
+        input.value = '';
+        showError('codeError', result.message || 'That code didn\'t work.');
+        if (result.expired) startResendCountdown(0); // let them get a fresh one straight away
+        return;
+      }
+      clearInterval(resendTimer);
+      afterSignIn(result, 'codeError');
+    } catch (err) {
+      showError('codeError', 'Could not reach the server: ' + err.message);
+    } finally {
+      setBusy(btn, false);
+    }
+  }
+
+  function changeEmail() {
+    clearInterval(resendTimer);
+    showSigninScreen();
+    document.getElementById('emailInput').focus();
+  }
+
+  // ---------- After either sign-in method succeeds ----------
+
+  function afterSignIn(result, errorBoxId) {
+    if (!DESTINATIONS[result.profile.role]) {
+      showError(errorBoxId, 'This account is not set up for coach or member access.');
+      return;
+    }
+    pendingLogin = { sessionKey: result.sessionKey, profile: result.profile };
+    document.getElementById('skipPinBtn').style.display = result.profile.hasPin ? 'block' : 'none';
+    document.getElementById('newPinInput').value = '';
+    hideMessage('pinSetupError');
+    showScreen('pinSetupScreen');
+  }
+
+  function showSigninScreen() {
+    hideMessage('signinError');
+    const emailBox = document.getElementById('emailInput');
+    if (!emailBox.value) {
+      let saved = null;
+      try { saved = localStorage.getItem(LAST_EMAIL_KEY); } catch (e) {}
+      if (saved) emailBox.value = saved;
+    }
+    showScreen('signinScreen');
   }
 
   function rememberDeviceAndGo(profile, sessionKey) {
@@ -218,47 +413,43 @@
   }
 
   async function savePin() {
-    const errBox = document.getElementById('pinSetupError');
-    errBox.style.display = 'none';
+    hideMessage('pinSetupError');
     const pin = document.getElementById('newPinInput').value.trim();
     if (!/^[0-9]{4}$/.test(pin)) {
-      errBox.textContent = 'Enter exactly 4 digits.';
-      errBox.style.display = 'block';
+      showError('pinSetupError', 'Enter exactly 4 digits.');
       return;
     }
+    const btn = document.getElementById('savePinBtn');
+    setBusy(btn, true, 'Saving…');
+    let leaving = false;
     try {
-      const result = await jsonpRequest(APPS_SCRIPT_URL, { mode: 'setPin', token: pendingLogin.idToken, pin: pin });
+      const result = await jsonpRequest(APPS_SCRIPT_URL, { mode: 'setPin', sessionKey: pendingLogin.sessionKey, pin: pin });
       if (!result.success) {
-        errBox.textContent = result.message || 'Could not save PIN.';
-        errBox.style.display = 'block';
+        showError('pinSetupError', result.message || 'Could not save PIN.');
         return;
       }
       // Setting a PIN doesn't itself return a session key, so unlock immediately
       // afterward with the PIN just chosen — same request a returning device makes.
       const unlockResult = await unlockWithGivenPin(pendingLogin.profile, pin);
       if (!unlockResult.success) {
-        errBox.textContent = unlockResult.message || 'PIN saved, but could not finish signing you in — please try unlocking again.';
-        errBox.style.display = 'block';
+        showError('pinSetupError', unlockResult.message || 'PIN saved, but could not finish signing you in — please try unlocking again.');
         return;
       }
+      leaving = true;
       rememberDeviceAndGo(unlockResult.profile, unlockResult.sessionKey);
     } catch (err) {
-      errBox.textContent = 'Could not reach the server: ' + err.message;
-      errBox.style.display = 'block';
+      showError('pinSetupError', 'Could not reach the server: ' + err.message);
+    } finally {
+      if (!leaving) setBusy(btn, false);
     }
   }
 
-  async function skipPin() {
-    const errBox = document.getElementById('pinSetupError');
-    errBox.style.display = 'none';
-    // They already have a PIN from before — we don't know it, so send them to the
-    // ordinary unlock screen to enter it, same as any other returning device.
-    const identity = { role: pendingLogin.profile.role, gymId: pendingLogin.profile.gymId, gymName: pendingLogin.profile.gymName, name: pendingLogin.profile.name };
-    if (pendingLogin.profile.role === 'Member') identity.memberId = pendingLogin.profile.memberId;
-    if (pendingLogin.profile.role === 'Coach') identity.email = pendingLogin.profile.email;
-    try { localStorage.setItem(IDENTITY_KEY, JSON.stringify(identity)); } catch (e) {}
+  // They already have a PIN and have just fully signed in, so there's no reason
+  // to make them type the PIN as well — go straight in with this sign-in.
+  function skipPin() {
+    const login = pendingLogin;
     pendingLogin = null;
-    showUnlockScreen(identity);
+    rememberDeviceAndGo(login.profile, login.sessionKey);
   }
 
   // ---------- PIN verification (used both right after setting a PIN, and on every return visit) ----------
@@ -278,35 +469,44 @@
   }
 
   async function unlockWithPin() {
-    const errBox = document.getElementById('unlockError');
-    errBox.style.display = 'none';
-    const pin = document.getElementById('unlockPinInput').value.trim();
+    const btn = document.getElementById('unlockBtn');
+    if (btn.disabled) return; // already checking (e.g. auto-submit fired)
+    hideMessage('unlockError');
+    const input = document.getElementById('unlockPinInput');
+    const pin = input.value.trim();
     if (!/^[0-9]{4}$/.test(pin)) {
-      errBox.textContent = 'Enter exactly 4 digits.';
-      errBox.style.display = 'block';
+      showError('unlockError', 'Enter exactly 4 digits.');
       return;
     }
     let identity = null;
     try { identity = JSON.parse(localStorage.getItem(IDENTITY_KEY)); } catch (e) {}
-    if (!identity) { showScreen('signinScreen'); return; }
+    if (!identity) { showSigninScreen(); return; }
 
+    setBusy(btn, true, 'Unlocking…');
+    let leaving = false;
     try {
       const result = await unlockWithGivenPin(identity, pin);
       if (!result.success) {
-        errBox.textContent = result.message || 'Incorrect PIN.';
-        errBox.style.display = 'block';
+        input.value = '';
+        showError('unlockError', result.message || 'Incorrect PIN.');
         return;
       }
+      leaving = true;
       rememberDeviceAndGo(result.profile, result.sessionKey);
     } catch (err) {
-      errBox.textContent = 'Could not reach the server: ' + err.message;
-      errBox.style.display = 'block';
+      showError('unlockError', 'Could not reach the server: ' + err.message);
+    } finally {
+      if (!leaving) setBusy(btn, false);
     }
   }
 
   function forgotPin() {
-    document.getElementById('signinError').style.display = 'none';
-    showScreen('signinScreen');
+    let identity = null;
+    try { identity = JSON.parse(localStorage.getItem(IDENTITY_KEY)); } catch (e) {}
+    if (identity && identity.email && !document.getElementById('emailInput').value) {
+      document.getElementById('emailInput').value = identity.email;
+    }
+    showSigninScreen();
   }
 
   // ---------- Startup ----------
@@ -324,7 +524,7 @@
     if (identity) {
       showUnlockScreen(identity);
     } else {
-      showScreen('signinScreen');
+      showSigninScreen();
     }
   }
 
@@ -333,6 +533,30 @@
   document.getElementById('skipPinBtn').addEventListener('click', skipPin);
   document.getElementById('unlockBtn').addEventListener('click', unlockWithPin);
   document.getElementById('forgotPinBtn').addEventListener('click', forgotPin);
+  document.getElementById('sendCodeBtn').addEventListener('click', sendCodeFromSigninScreen);
+  document.getElementById('verifyCodeBtn').addEventListener('click', verifyCode);
+  document.getElementById('resendCodeBtn').addEventListener('click', resendCode);
+  document.getElementById('changeEmailBtn').addEventListener('click', changeEmail);
+
+  // Pressing Enter/Go on the keyboard does the obvious thing on each screen.
+  function onEnter(inputId, fn) {
+    document.getElementById(inputId).addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); fn(); } });
+  }
+  onEnter('emailInput', sendCodeFromSigninScreen);
+  onEnter('codeInput', verifyCode);
+  onEnter('newPinInput', savePin);
+  onEnter('unlockPinInput', unlockWithPin);
+
+  // Codes and unlock PINs submit themselves as soon as the last digit goes in
+  // (including when iPhone auto-fills the code straight from the email).
+  document.getElementById('codeInput').addEventListener('input', ev => {
+    ev.target.value = ev.target.value.replace(/\D/g, '').slice(0, 6);
+    if (ev.target.value.length === 6) verifyCode();
+  });
+  document.getElementById('unlockPinInput').addEventListener('input', ev => {
+    ev.target.value = ev.target.value.replace(/\D/g, '').slice(0, 4);
+    if (ev.target.value.length === 4) unlockWithPin();
+  });
 
   init();
 })();
