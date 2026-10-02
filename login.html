@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Gym App</title>
+<title>OssTrack</title>
 
 <link rel="manifest" href="./login-manifest.json">
 <meta name="theme-color" content="#161616">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Gym App">
+<meta name="apple-mobile-web-app-title" content="OssTrack">
 <link rel="apple-touch-icon" href="./member-icon-180.png">
 <link rel="icon" href="./member-icon-192.png">
 
@@ -70,7 +70,7 @@
 
 <!-- Not signed in on this device yet -->
 <div id="signinScreen" class="screen">
-  <h1>Gym App</h1>
+  <h1>OssTrack</h1>
   <p>Sign in with the email your gym has on file for you.</p>
   <button type="button" class="btn" id="googleSignInBtn">Continue with Google</button>
   <div class="divider">or</div>
@@ -170,7 +170,7 @@
       const cbName = 'jsonp_cb_' + Math.random().toString(36).slice(2);
       const timeout = setTimeout(() => {
         cleanup();
-        reject(new Error('Request timed out — check your connection and try again'));
+        reject(new Error('Request timed out. Check your connection and try again'));
       }, 20000);
 
       function cleanup() {
@@ -330,7 +330,7 @@
       }
       document.getElementById('codeInput').value = '';
       const note = document.getElementById('codeNote');
-      note.textContent = 'New code sent — any earlier code no longer works.';
+      note.textContent = 'New code sent. Any earlier code no longer works.';
       note.style.display = 'block';
       startResendCountdown(60);
     } catch (err) {
@@ -432,7 +432,7 @@
       // afterward with the PIN just chosen — same request a returning device makes.
       const unlockResult = await unlockWithGivenPin(pendingLogin.profile, pin);
       if (!unlockResult.success) {
-        showError('pinSetupError', unlockResult.message || 'PIN saved, but could not finish signing you in — please try unlocking again.');
+        showError('pinSetupError', unlockResult.message || 'PIN saved, but could not finish signing you in. Please try unlocking again.');
         return;
       }
       leaving = true;

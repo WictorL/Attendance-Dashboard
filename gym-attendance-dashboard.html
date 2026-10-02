@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Gym Attendance</title>
+<title>OssTrack Dashboard</title>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -311,7 +311,7 @@
       const cbName = 'jsonp_cb_' + Math.random().toString(36).slice(2);
       const timeout = setTimeout(() => {
         cleanup();
-        reject(new Error('Request timed out — check the script URL is correct'));
+        reject(new Error('Request timed out. Check your connection and try again'));
       }, 20000);
 
       function cleanup() {

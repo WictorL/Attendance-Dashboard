@@ -1,6 +1,6 @@
 {
-  "name": "Gym App",
-  "short_name": "Gym App",
+  "name": "OssTrack",
+  "short_name": "OssTrack",
   "start_url": "./login.html",
   "display": "standalone",
   "background_color": "#161616",

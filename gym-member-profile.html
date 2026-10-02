@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>My Attendance</title>
+<title>OssTrack</title>
 
 <style>
   :root {
@@ -58,19 +58,17 @@
     background: var(--accent); color: #161616; font-weight: 700; font-size: 15px; cursor: pointer;
     font-family: inherit;
   }
-  .scanner-link {
-    display: block; text-align: center; padding: 14px; border-radius: 12px;
-    background: var(--card2); color: var(--text); text-decoration: none; font-weight: 600; font-size: 14px;
-    margin-bottom: 12px;
-  }
   .checkin-status { font-size: 13px; margin-top: 10px; text-align: center; min-height: 18px; }
   .checkin-status.ok { color: #4ade80; }
   .checkin-status.bad { color: #ff6b6b; }
-  .nearby-banner {
-    display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    background: rgba(232,89,12,0.15); border: 1px solid var(--accent); color: var(--text);
-    border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; font-size: 13px;
+  .checkin-row button:disabled { opacity: 0.6; cursor: default; }
+  .checkin-state {
+    border-radius: 10px; padding: 12px 14px; font-size: 14px; line-height: 1.4;
+    background: var(--card2); color: var(--muted);
   }
+  .checkin-state.ready { background: rgba(232,89,12,0.15); border: 1px solid var(--accent); color: var(--text); margin-bottom: 12px; }
+  .checkin-state.done { background: rgba(74,222,128,0.12); border: 1px solid #4ade80; color: var(--text); }
+  .checkin-state .tick { color: #4ade80; font-weight: 700; margin-right: 6px; }
 </style>
 </head>
 <body>
@@ -91,17 +89,15 @@
 
     <div class="panel">
       <h2>Check in</h2>
-      <div id="nearbyBanner" class="nearby-banner" style="display:none;">
-        <span>You're at the gym — ready to check in?</span>
-        <button type="button" class="link-btn" id="dismissBannerBtn" style="margin:0; display:inline;">Dismiss</button>
-      </div>
-      <a href="scanner.html" class="scanner-link">Open Scanner</a>
-      <div class="checkin-row">
+      <!-- The message box below changes with the situation: checking location,
+           away from the gym, at the gym (PIN box appears), or already checked in. -->
+      <div id="checkinState" class="checkin-state">Checking whether you're at the gym…</div>
+      <div class="checkin-row" id="checkinForm" style="display:none;">
         <input id="checkinPinInput" class="pin-input" type="tel" inputmode="numeric" maxlength="4" placeholder="PIN" autocomplete="off">
         <button type="button" id="checkinBtn">Check In</button>
       </div>
       <div class="checkin-status" id="checkinStatus"></div>
-      <div style="font-size:12px; color:var(--muted); margin-top:8px;">Both options only work while you're at the gym.</div>
+      <button type="button" class="link-btn" id="recheckBtn" style="display:none;">Check again</button>
     </div>
 
     <div class="kpis">
@@ -130,8 +126,9 @@
   const SESSION_KEY = 'gymAppSessionKey';
 
   let member = null; // { name, gymId, gymName, memberId } — from the remembered device identity
-  let bannerDismissed = false;
-  let hasCheckedInThisLoad = false;
+  let visits = [];            // this member's visits, newest first
+  let checkinState = null;    // 'locating' | 'away' | 'nolocation' | 'notsetup' | 'error' | 'ready' | 'done'
+  let locationCheckRunning = false;
 
   function goToLogin() {
     try { localStorage.removeItem(IDENTITY_KEY); sessionStorage.removeItem(SESSION_KEY); } catch (e) {}
@@ -143,7 +140,7 @@
       const cbName = 'jsonp_cb_' + Math.random().toString(36).slice(2);
       const timeout = setTimeout(() => {
         cleanup();
-        reject(new Error('Request timed out — check your connection and try again'));
+        reject(new Error('Request timed out. Check your connection and try again'));
       }, 20000);
 
       function cleanup() {
@@ -167,8 +164,12 @@
       if (!navigator.geolocation) { reject(new Error('Location is not available on this device')); return; }
       navigator.geolocation.getCurrentPosition(
         pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        () => reject(new Error('Could not get your location — check location permission is allowed')),
-        { timeout: 10000 }
+        err => {
+          const e = new Error('Could not get your location. Check that location access is allowed');
+          e.denied = err && err.code === 1;
+          reject(e);
+        },
+        { timeout: 10000, maximumAge: 60000 }
       );
     });
   }
@@ -187,7 +188,9 @@
       const data = await jsonpRequest(APPS_SCRIPT_URL, { mode: 'profile', id: member.memberId, gymId: member.gymId });
       if (data.error || !data.member) throw new Error('Profile not found');
       render(data);
-      checkIfNearGym();
+      const today = todaysVisit();
+      if (today) setCheckinState('done', today);
+      else checkIfNearGym(true);
     } catch (err) {
       document.getElementById('loading').style.display = 'none';
       const e = document.getElementById('err');
@@ -197,14 +200,17 @@
   }
 
   function render(data) {
-    const visits = (data.visits || []).map(v => new Date(v)).filter(d => !isNaN(d)).sort((a,b) => b-a);
+    visits = (data.visits || []).map(v => new Date(v)).filter(d => !isNaN(d)).sort((a,b) => b-a);
     document.getElementById('loading').style.display = 'none';
     document.getElementById('content').style.display = 'block';
 
     document.getElementById('name').textContent = data.member.name || 'Member';
     document.getElementById('belt').textContent = (data.member.belt || '') + ' belt';
     document.getElementById('initial').textContent = (data.member.name || '?').charAt(0).toUpperCase();
+    renderStats();
+  }
 
+  function renderStats() {
     document.getElementById('kpiTotal').textContent = visits.length;
     const now = new Date();
     const monthCount = visits.filter(d => d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()).length;
@@ -230,50 +236,131 @@
     ).join('') : '<tr><td style="color:var(--muted);">No visits recorded yet</td></tr>';
   }
 
-  async function checkIfNearGym() {
-    if (bannerDismissed || hasCheckedInThisLoad) return;
+  function sameDay(a, b) {
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  }
+
+  function todaysVisit() {
+    const now = new Date();
+    return visits.find(d => sameDay(d, now)) || null;
+  }
+
+  function fmtTime(d) {
+    return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  }
+
+  // Shows the right message (and only shows the PIN box when it can actually be used).
+  function setCheckinState(state, when) {
+    checkinState = state;
+    const box = document.getElementById('checkinState');
+    const form = document.getElementById('checkinForm');
+    const recheck = document.getElementById('recheckBtn');
+    box.className = 'checkin-state';
+    form.style.display = 'none';
+    recheck.style.display = 'none';
+
+    if (state === 'locating') {
+      box.textContent = "Checking whether you're at the gym…";
+    } else if (state === 'away') {
+      box.textContent = "Check-in opens when you're at the gym.";
+      recheck.textContent = 'Check again';
+      recheck.style.display = 'block';
+    } else if (state === 'nolocation') {
+      box.textContent = 'Allow location access for this app so we can tell when you\'re at the gym.';
+      recheck.textContent = 'Try again';
+      recheck.style.display = 'block';
+    } else if (state === 'notsetup') {
+      box.textContent = "Check-in isn't available yet, because your gym's location hasn't been set up.";
+    } else if (state === 'error') {
+      box.textContent = "Couldn't check your location just now.";
+      recheck.textContent = 'Try again';
+      recheck.style.display = 'block';
+    } else if (state === 'ready') {
+      box.classList.add('ready');
+      box.textContent = "You're at the gym. Enter your PIN to check in.";
+      form.style.display = 'flex';
+    } else if (state === 'done') {
+      box.classList.add('done');
+      box.textContent = '';
+      const tick = document.createElement('span');
+      tick.className = 'tick';
+      tick.textContent = '✓';
+      box.appendChild(tick);
+      box.appendChild(document.createTextNode(
+        when ? 'Checked in today at ' + fmtTime(when) + '. See you on the mat!' : "You're checked in for today. See you on the mat!"
+      ));
+    }
+  }
+
+  // showProgress = true when the person is waiting on it (first load, "Check again");
+  // the background re-checks every 2 minutes update quietly instead.
+  async function checkIfNearGym(showProgress) {
+    if (checkinState === 'done' || checkinState === 'notsetup' || locationCheckRunning) return;
+    // Don't yank the PIN box away mid-typing because of a GPS wobble — the server
+    // still checks the distance properly when they press Check In.
+    if (checkinState === 'ready' && !showProgress) return;
+
+    locationCheckRunning = true;
+    if (showProgress) setCheckinState('locating');
     try {
       const loc = await getLocation();
       const result = await jsonpRequest(APPS_SCRIPT_URL, {
         mode: 'checkProximity', gymId: member.gymId, lat: loc.lat, lng: loc.lng
       });
-      if (result.withinRange && !bannerDismissed && !hasCheckedInThisLoad) {
-        document.getElementById('nearbyBanner').style.display = 'flex';
-      }
+      if (checkinState === 'done') return;
+      if (result.notSetUp) setCheckinState('notsetup');
+      else if (result.withinRange === true) setCheckinState('ready');
+      else if (result.withinRange === false) setCheckinState('away');
+      else setCheckinState('error');
     } catch (err) {
-      // No permission yet, or location unavailable — say nothing, this is a quiet enhancement only.
+      if (checkinState === 'done') return;
+      setCheckinState(err.denied ? 'nolocation' : 'error');
+    } finally {
+      locationCheckRunning = false;
     }
   }
 
   async function checkInWithPin() {
     const statusEl = document.getElementById('checkinStatus');
-    const pin = document.getElementById('checkinPinInput').value.trim();
+    const btn = document.getElementById('checkinBtn');
+    const input = document.getElementById('checkinPinInput');
+    if (btn.disabled) return;
+    const pin = input.value.trim();
     if (!/^[0-9]{4}$/.test(pin)) {
       statusEl.textContent = 'Enter your 4-digit PIN.';
       statusEl.className = 'checkin-status bad';
       return;
     }
-    statusEl.textContent = 'Getting your location…';
+    statusEl.textContent = '';
     statusEl.className = 'checkin-status';
+    btn.disabled = true;
+    btn.textContent = 'Checking in…';
     try {
       const loc = await getLocation();
-      statusEl.textContent = 'Checking in…';
       const result = await jsonpRequest(APPS_SCRIPT_URL, {
         mode: 'pinCheckIn', gymId: member.gymId, memberId: member.memberId, pin: pin, lat: loc.lat, lng: loc.lng
       });
-      if (!result.success) {
-        statusEl.textContent = result.error || 'Could not check in.';
-        statusEl.className = 'checkin-status bad';
+      input.value = '';
+      if (result.success) {
+        const now = new Date();
+        visits.unshift(now);  // show the new visit in the stats straight away
+        renderStats();
+        setCheckinState('done', now);
         return;
       }
-      statusEl.textContent = 'Checked in — see you on the mat!';
-      statusEl.className = 'checkin-status ok';
-      document.getElementById('checkinPinInput').value = '';
-      hasCheckedInThisLoad = true;
-      document.getElementById('nearbyBanner').style.display = 'none';
+      if (result.reason === 'already') { setCheckinState('done'); return; }
+      if (result.reason === 'too_far') setCheckinState('away');
+      else if (result.reason === 'no_location') setCheckinState('nolocation');
+      else if (result.reason === 'not_setup') setCheckinState('notsetup');
+      statusEl.textContent = result.error || 'Could not check in.';
+      statusEl.className = 'checkin-status bad';
     } catch (err) {
+      if (err.denied) setCheckinState('nolocation');
       statusEl.textContent = err.message;
       statusEl.className = 'checkin-status bad';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Check In';
     }
   }
 
@@ -294,18 +381,22 @@
 
   document.getElementById('checkinBtn').addEventListener('click', checkInWithPin);
   document.getElementById('signOutBtn').addEventListener('click', goToLogin);
-  document.getElementById('dismissBannerBtn').addEventListener('click', () => {
-    bannerDismissed = true;
-    document.getElementById('nearbyBanner').style.display = 'none';
+  document.getElementById('recheckBtn').addEventListener('click', () => {
+    document.getElementById('checkinStatus').textContent = '';
+    checkIfNearGym(true);
+  });
+  document.getElementById('checkinPinInput').addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') { ev.preventDefault(); checkInWithPin(); }
   });
 
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && member && document.getElementById('profile').style.display !== 'none') {
-      checkIfNearGym();
-    }
+    if (document.visibilityState !== 'visible' || !member || document.getElementById('content').style.display === 'none') return;
+    // Coming back to the app on a new day? Reload so "checked in" resets.
+    if (checkinState === 'done' && !todaysVisit()) { loadAndShowProfile(); return; }
+    checkIfNearGym(false);
   });
   setInterval(() => {
-    if (member && document.getElementById('profile').style.display !== 'none') checkIfNearGym();
+    if (member && document.getElementById('content').style.display !== 'none') checkIfNearGym(false);
   }, 120000);
 
   init();
