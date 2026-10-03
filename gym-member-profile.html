@@ -215,7 +215,8 @@
     document.getElementById('content').style.display = 'block';
 
     document.getElementById('name').textContent = data.member.name || 'Member';
-    document.getElementById('belt').textContent = (data.member.belt || '') + ' belt';
+    const rankWord = (data.labels && data.labels.rank) || 'Belt';
+    document.getElementById('belt').textContent = data.member.belt ? rankWord + ': ' + data.member.belt : '';
     document.getElementById('initial').textContent = (data.member.name || '?').charAt(0).toUpperCase();
     renderStats();
   }
@@ -297,7 +298,7 @@
       tick.textContent = '✓';
       box.appendChild(tick);
       box.appendChild(document.createTextNode(
-        when ? 'Checked in today at ' + fmtTime(when) + '. See you on the mat!' : "You're checked in for today. See you on the mat!"
+        when ? 'Checked in today at ' + fmtTime(when) + '. See you in class!' : "You're checked in for today. See you in class!"
       ));
     }
   }
