@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>OssTrack</title>
+<title>LineUp</title>
 
 <link rel="manifest" href="./login-manifest.json">
 <meta name="theme-color" content="#161616">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="OssTrack">
+<meta name="apple-mobile-web-app-title" content="LineUp">
 <link rel="apple-touch-icon" href="./member-icon-180.png">
 <link rel="icon" href="./member-icon-192.png">
 
@@ -70,7 +70,7 @@
 
 <!-- Not signed in on this device yet -->
 <div id="signinScreen" class="screen">
-  <h1>OssTrack</h1>
+  <h1 id="appName">LineUp</h1>
   <p>Sign in with the email your gym has on file for you.</p>
   <button type="button" class="btn" id="googleSignInBtn">Continue with Google</button>
   <div class="divider">or</div>
@@ -126,6 +126,8 @@
   const SESSION_KEY = 'gymAppSessionKey';  // sessionStorage — a short-lived proof of this unlock
   const NONCE_KEY = 'gymAppNonce';         // sessionStorage — one-time value for the Google redirect only
   const LAST_EMAIL_KEY = 'gymAppLastEmail'; // localStorage — pre-fills the email box next time
+  const GYM_NAME_KEY = 'gymAppGymName';     // localStorage — which gym this device belongs to, for the app's name
+  const BRAND = 'LineUp';
 
   const DESTINATIONS = { Coach: 'gym-attendance-dashboard.html', Member: 'gym-member-profile.html' };
 
@@ -488,7 +490,8 @@
       const result = await unlockWithGivenPin(identity, pin);
       if (!result.success) {
         input.value = '';
-        showError('unlockError', result.message || 'Incorrect PIN.');
+        showError('unlockError', (result.message || 'Incorrect PIN.') +
+          (result.locked || /paused/.test(result.message || '') ? ' Or tap "Forgot your PIN?" below to sign in again.' : ''));
         return;
       }
       leaving = true;
@@ -511,7 +514,43 @@
 
   // ---------- Startup ----------
 
+  // Each gym's app is called "[Gym Name] LineUp". The name shows in the page title,
+  // the heading, and (on iPhone) the label under the home-screen icon, so it is set
+  // BEFORE someone adds the app to their home screen.
+  function applyBranding(gym) {
+    const name = gym ? gym + ' ' + BRAND : BRAND;
+    document.title = name;
+    const meta = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+    if (meta) meta.setAttribute('content', name);
+    const heading = document.getElementById('appName');
+    if (heading) heading.textContent = name;
+  }
+
+  function brandFromDevice() {
+    let gym = null;
+    try {
+      const identity = JSON.parse(localStorage.getItem(IDENTITY_KEY));
+      gym = (identity && identity.gymName) || localStorage.getItem(GYM_NAME_KEY);
+    } catch (e) {}
+    if (gym) applyBranding(gym);
+  }
+
+  // A gym's own link looks like login.html?g=GYMID. The gym's name is looked up from it.
+  async function brandFromLink() {
+    const gymId = new URLSearchParams(window.location.search).get('g');
+    if (!gymId || !/^[A-Za-z0-9_-]{1,40}$/.test(gymId)) return;
+    try {
+      const result = await jsonpRequest(APPS_SCRIPT_URL, { mode: 'gymPublic', gymId: gymId });
+      if (result && result.gymName) {
+        try { localStorage.setItem(GYM_NAME_KEY, result.gymName); } catch (e) {}
+        applyBranding(result.gymName);
+      }
+    } catch (e) { /* the page still works, just under the plain LineUp name */ }
+  }
+
   async function init() {
+    brandFromDevice();
+    brandFromLink();
     const returnedToken = consumeAuthRedirect();
     if (returnedToken) {
       onGoogleLogin(returnedToken);

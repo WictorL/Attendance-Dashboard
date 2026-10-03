@@ -1,6 +1,6 @@
 {
-  "name": "OssTrack",
-  "short_name": "OssTrack",
+  "name": "LineUp",
+  "short_name": "LineUp",
   "start_url": "./login.html",
   "display": "standalone",
   "background_color": "#161616",

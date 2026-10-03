@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>OssTrack</title>
+<title>LineUp</title>
 
 <style>
   :root {
@@ -393,6 +393,7 @@
     }
 
     member = identity;
+    document.title = identity.gymName ? identity.gymName + ' LineUp' : 'LineUp';
     loadAndShowProfile();
   }
 

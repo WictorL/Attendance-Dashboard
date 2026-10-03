@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>OssTrack Dashboard</title>
+<title>LineUp</title>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -263,6 +263,13 @@
   const SESSION_KEY = 'gymAppSessionKey';
 
   let gymName = null, sessionKey = null;
+
+  // Each gym's app is called "[Gym Name] LineUp".
+  function showAppName(gym) {
+    const name = gym ? gym + ' LineUp' : 'LineUp';
+    document.getElementById('gymTitle').textContent = name;
+    document.title = name;
+  }
   let expandedBelt = null;
   let expandedKpi = null;
   let calYear = null, calMonth = null, calDaysMap = {};
@@ -393,7 +400,7 @@
     lastData = data;
     document.getElementById('loading').style.display = 'none';
     document.getElementById('content').style.display = 'block';
-    if (data.gymName) document.getElementById('gymTitle').textContent = data.gymName;
+    if (data.gymName) showAppName(data.gymName);
     document.getElementById('kpiToday').textContent = data.today || 0;
     document.getElementById('kpiWeek').textContent = data.week || 0;
     document.getElementById('kpiMembers').textContent = data.totalMembers || 0;
@@ -712,7 +719,7 @@
     gymName = identity.gymId;
     document.getElementById('redirecting').style.display = 'none';
     document.getElementById('dash').style.display = 'block';
-    document.getElementById('gymTitle').textContent = identity.gymName || gymName;
+    showAppName(identity.gymName || gymName);
     loadData();
   }
 
